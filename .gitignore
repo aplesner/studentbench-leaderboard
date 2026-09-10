@@ -1,0 +1,31 @@
+# Python-generated files
+__pycache__/
+*.py[oc]
+build/
+dist/
+wheels/
+*.egg-info
+
+# Virtual environments
+.venv
+
+# Local SSOT data and archives (storage will be configured separately)
+/studentbench_data_ssot/
+/studentbench_ssot.tar.gz
+/data/
+/results/
+*.tar.gz
+*.zip
+*.db
+*.sqlite
+*.sqlite3
+
+# Credentials and local settings
+.env
+.env.*
+!.env.example
+.DS_Store
+.pytest_cache/
+.ruff_cache/
+.coverage
+htmlcov/

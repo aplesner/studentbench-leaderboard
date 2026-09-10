@@ -1,0 +1,23 @@
+[project]
+name = "studentbench-leaderboard"
+version = "0.1.0"
+description = "LLM lesson-plan judging and validation against StudentBench human ratings"
+readme = "README.md"
+authors = [
+    { name = "Andreas Plesner", email = "AndreasPlesner@pm.me" }
+]
+requires-python = ">=3.12"
+dependencies = [
+    "litellm>=1.100.1",
+    "matplotlib>=3.11.1",
+    "numpy>=2.5.3",
+    "openai>=2.54.0",
+    "pandas>=3.0.5",
+]
+
+[project.scripts]
+studentbench-leaderboard = "studentbench_leaderboard:main"
+
+[build-system]
+requires = ["uv_build>=0.12.2,<0.13.0"]
+build-backend = "uv_build"
