@@ -1,6 +1,7 @@
 """Prepare Qwen and small, distinct-family panels without changing earlier runs."""
 from __future__ import annotations
 
+import argparse
 import hashlib
 import json
 from pathlib import Path
@@ -45,9 +46,18 @@ def copy_tree(source, target):
             freeze(target / path.relative_to(source), path.read_bytes())
 
 
-def main():
-    catalog_source = Path("/private/tmp/studentbench-openrouter-catalog-20260911-revision.json")
-    provider_catalog = load(catalog_source)
+def main(argv=None):
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--provider-catalog", type=Path, required=True, metavar="PATH",
+                        help="Path to the local provider catalog JSON used to prepare this follow-up")
+    args = parser.parse_args(argv)
+    catalog_source = args.provider_catalog
+    if not catalog_source.is_file():
+        parser.error(f"Provider catalog is not a readable local file: {catalog_source}")
+    try:
+        provider_catalog = load(catalog_source)
+    except (OSError, UnicodeError, json.JSONDecodeError) as exc:
+        parser.error(f"Cannot read provider catalog JSON from {catalog_source}: {exc}")
     qwen = next(row for row in provider_catalog["data"] if row["id"] == "qwen/qwen3.8-max-0902")
     assert "high" in qwen["reasoning"]["supported_efforts"]
     assert {"structured_outputs", "response_format"} <= set(qwen["supported_parameters"])

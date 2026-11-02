@@ -25,6 +25,15 @@ evaluable; the quartet requiring Qwen remains unavailable. Planned concurrency
 was 128 total and per model, while the actual preflight concurrency was one.
 `execution.json` records this distinction.
 
+To prepare the historical follow-up, provide the same local provider catalog JSON
+used for that study. The preparer copies its bytes into the frozen study and
+rejects changed existing inputs. It does not fetch a catalog:
+
+```sh
+uv run python experiments/ranking-followup/prepare.py \
+  --provider-catalog /path/to/provider-catalog.json
+```
+
 Run the finalizer and independent verifier from the repository root:
 
 ```sh

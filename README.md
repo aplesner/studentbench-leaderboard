@@ -1,108 +1,93 @@
 # StudentBench lesson-plan leaderboard
 
-Evaluate lesson plans with an LLM judge **J**, then check its judgments against
-the human expert ratings in the frozen StudentBench SSOT.
+The first StudentBench leaderboard compares 17 lesson-plan generator systems on
+83 frozen GRE Quant student contexts. An AI judge evaluated 2,313 pairwise
+comparisons across eight quality criteria. The five new generators each produced
+83 plans; the 12 historical systems have different available student counts.
 
-The initial implementation is a Python CLI and a small library. It supports
-single-plan quality ratings (1–5), pairwise preferences (−2 to +2), descriptive
-plan/model leaderboards, and agreement reports on matching human reviews. A
-judge can abstain with `null`; a pairwise score of zero means a tie. The ranking
-study evaluates model-level alignment on separate validation and test subjects.
-No model calls are needed for setup or the tests.
+## AI-judged leaderboard
 
-## First public leaderboard
+Rank 1 is the highest estimated quality. The Bradley–Terry (BT) score summarizes
+pairwise preferences while accounting for opponents. Asterisks mark the five
+new generators; other rows are historical baselines.
 
-The November 2, 2026 release ranks 17 generator systems: the original 12
-baselines and five new models. It covers 83 frozen benchmark contexts, 415 new
-plans, 2,313 comparisons and 18,504 rubric answers, with no missing or abstained
-answers. All 500 student-bootstrap fits were valid. The ranking is AI-judged;
-the historical and new generation pipelines differ, as described in the report.
+| Rank | Generator system | 95% rank range | BT score | Comparisons | Students |
+| ---: | --- | ---: | ---: | ---: | ---: |
+| 1 | Kimi K3.1 Pro * | 1–2 | 1.149 | 570 | 83 |
+| 2 | Claude Opus 5 · high | 1–5 | 0.951 | 90 | 13 |
+| 3 | GPT 5.5 · high | 2–5 | 0.820 | 136 | 20 |
+| 4 | GPT 5.5 Pro · medium | 2–6 | 0.800 | 135 | 17 |
+| 5 | DeepSeek v4.1 Flash * | 3–6 | 0.701 | 570 | 83 |
+| 6 | Claude Opus 4.8 · xhigh | 4–7 | 0.609 | 137 | 18 |
+| 7 | Claude Opus 4.8 · off | 5–9 | 0.472 | 87 | 12 |
+| 8 | Claude Haiku 5.5 * | 7–9 | 0.376 | 570 | 83 |
+| 9 | Gemini 4 Argon * | 9–11 | 0.196 | 570 | 83 |
+| 10 | GLM 5.3 * | 8–11 | 0.143 | 570 | 83 |
+| 11 | Claude Sonnet 4.6 · low | 8–11 | 0.016 | 153 | 19 |
+| 12 | Kimi K2.6 | 12–13 | -0.468 | 143 | 18 |
+| 13 | Gemini 3.7 Flash · medium | 12–14 | -0.591 | 74 | 11 |
+| 14 | Gemini 3.1 Pro · high | 13–14 | -0.794 | 211 | 28 |
+| 15 | Gemini 3.5 Flash · low | 15–16 | -1.283 | 209 | 28 |
+| 16 | Gemma 4 31B · high | 15–17 | -1.525 | 212 | 28 |
+| 17 | GPT 5.4 Mini · none | 16–17 | -1.572 | 189 | 26 |
 
-View the [public leaderboard](reports/2026-11-02/leaderboard.html), or download
-its [CSV](reports/2026-11-02/leaderboard.csv) and
-[aggregate JSON](reports/2026-11-02/leaderboard.json). The detailed original
-judge-validation research report remains local at
-`results/ranking-study-20260910/report.html`. Release inference used the Tailscale
-proxy; the CLI's `auto` routing described below remains unchanged. The ledger
-estimate was $410.79 against the $1,000 cap, including retained reservations for
-failed or unknown-cost calls; it is not an invoice. GPT-6.1 Terra and MiMo 2.6
-Flash/Pro were deferred at the user's request. For methods and future work,
-see the [release notes](experiments/public-release/README.md) and
-[roadmap](docs/roadmap.md).
+The 95% rank ranges come from 500 student-context bootstrap resamples; all 500
+fits were connected and converged. They describe uncertainty for the saved plans
+and do not establish a unique winner. A system combines a model with its generation
+settings. Historical plans may include answer-verifier edits; the new plans use
+the released prompt and reconstructed context without that historical verifier.
+The pipelines are not historically equivalent, so the table compares the recorded
+systems rather than models in isolation. These are AI judgments, not human grades
+or measurements of student learning.
 
-## Generate and evaluate a new model
+![Overall leaderboard with student bootstrap rank intervals](reports/2026-11-02/figure-overall-ranks.png)
 
-After preparing a benchmark once, the new-model workflow is:
+*Points are overall ranks; lines are 95% student-bootstrap rank ranges. Diamonds
+mark new generators; circles mark historical baselines.*
+
+![Criterion-specific ranks across eight quality dimensions](reports/2026-11-02/figure-criterion-ranks.png)
+
+*Each column is a separately fitted criterion ranking; rows follow overall rank.
+Darker cells indicate higher estimated quality, and diamonds mark new generators.
+The overall intervals above use 500 student resamples; this heatmap shows point
+ranks only.*
+
+Explore the [public report](reports/2026-11-02/leaderboard.html),
+[CSV](reports/2026-11-02/leaderboard.csv), and
+[aggregate JSON](reports/2026-11-02/leaderboard.json). The
+[plotting helper](reports/2026-11-02/plot_leaderboard.py) reproduces both figures
+from the aggregate JSON. The detailed original judge-validation report remains
+local at `results/ranking-study-20260910/report.html`. See the
+[release notes](experiments/public-release/README.md) and [roadmap](docs/roadmap.md).
+
+## Quick start
+
+A fresh checkout does **not** include the private 83-context benchmark. Obtain a
+prepared `gre-quant-v1` bundle from the data owner and place it at
+`data/gre-quant-v1` before running these commands. The provider key below is a
+placeholder; supply your own credential and a model ID you can access.
 
 ```bash
-uv run studentbench-leaderboard generate \
-  --model provider/model-id --output results/new-model
+uv sync --locked
+uv run studentbench-leaderboard benchmark inspect data/gre-quant-v1
+export OPENROUTER_API_KEY="your-openrouter-api-key"
+uv run studentbench-leaderboard generate --model provider/model-id --output results/new-model
 uv run studentbench-leaderboard evaluate results/new-model
 ```
 
-Replace `provider/model-id` with an exact available model ID. The first command
-generates plans for the benchmark students; the second judges those plans
-against existing plans for the same students and writes `evaluation.json`,
-`leaderboard.csv`, and `report.html` in `results/new-model/evaluation/`.
-The generation model and the benchmark's selected judge are separate.
+The default `auto` profile uses OpenRouter unless `OPENAI_API_KEY` is available
+for a GPT model or `ANTHROPIC_API_KEY` is available for a Claude model, in which
+case it uses that native provider. See [.env.example](.env.example) and
+[connection.example.toml](connection.example.toml) for credentials and explicit
+profiles. To opt into a configured Tailscale proxy, set `LITELLM_PROXY_API_BASE`
+and `LITELLM_PROXY_API_KEY` privately, then add `--profile tailscale` before the
+command; the first public release used this profile.
 
-For a joint leaderboard with several new generators, run `evaluate-many` with
-their generation directories and an output directory. This fits one model graph
-and includes new-to-new plan comparisons:
-
-```bash
-uv run studentbench-leaderboard evaluate-many \
-  results/model-a results/model-b --output results/combined
-```
-
-Compatible judgments are reused from `results/judge-cache` across candidate
-models; override this with `--cache-dir PATH` or `STUDENTBENCH_JUDGE_CACHE`.
-Changing the judge route can require fresh baseline judgments once; subsequent
-models reuse those results when their requests match.
-
-The default `auto` connection uses OpenRouter. For GPT models, an available
-`OPENAI_API_KEY` selects direct OpenAI access; for Claude models, an available
-`ANTHROPIC_API_KEY` selects direct Anthropic access. Otherwise configure
-`OPENROUTER_API_KEY`. Explicit `openrouter/` model prefixes or `--profile
-openrouter` force OpenRouter. `--profile openai`, `--profile anthropic`, and
-`--profile direct` select native access explicitly. Keys are read from the
-environment; see [.env.example](.env.example) and
-[connection.example.toml](connection.example.toml). The application does not
-automatically load `.env` files.
-
-```bash
-# Inspect requests and counts without inference or credentials.
-uv run studentbench-leaderboard generate \
-  --model provider/model-id --output results/new-model --dry-run
-uv run studentbench-leaderboard evaluate results/new-model --dry-run
-
-# Check connection/authentication without making an inference request.
-uv run studentbench-leaderboard doctor --model provider/model-id
-```
-
-Re-running a command reuses validated completed requests. Use `--limit N` for a
-generation subset, `--comparisons-per-student N` for a smaller evaluation
-schedule, and `--max-new-calls N` to bound new inference. `--workers` and
-`--timeout` control execution. Parameters defining a saved run must match when
-resuming. Incomplete runs retain their completed work and report missing
-outcomes. A provider or Tailscale failure never changes the connection profile
-automatically.
-
-The internal LiteLLM proxy is an explicit option:
-
-```bash
-export LITELLM_PROXY_API_BASE='http://your-tailnet-host:4000'
-export LITELLM_PROXY_API_KEY='your-proxy-key'
-uv run studentbench-leaderboard --profile tailscale generate \
-  --model your-proxy-model-alias --output results/new-model
-uv run studentbench-leaderboard --profile tailscale evaluate results/new-model
-```
-
-Use the actual proxy URL and aliases configured by its administrator. Tailscale
-provides connectivity; this code does not install or configure it. A custom
-connection TOML can be passed with `--config PATH`. Its optional per-profile
-`models` mapping translates the frozen judge's canonical ID into your proxy's
-confirmed alias, and `revision` records deployment changes in cache identities.
+For several new generators, `evaluate-many` builds a combined leaderboard.
+Judgments are shared via `results/judge-cache` (configurable with `--cache-dir`
+or `STUDENTBENCH_JUDGE_CACHE`); `--max-new-calls` bounds provider attempts. See
+the [integration guide](docs/integration-plan.md) and command `--help` for the
+multi-model workflow, caching and execution controls.
 
 ## Prepare the benchmark once
 
@@ -133,13 +118,12 @@ separately; newly generated plans have no human grades.
 
 ```bash
 uv sync --locked
-uv run studentbench-leaderboard inspect --verify
-uv run studentbench-leaderboard --instrument gre_verbal inspect --verify
 uv run python -m unittest discover -s tests -v
 ```
 
-Python 3.12+ is required. The existing `uv.lock` pins the environment. Tests use
-synthetic fixtures and need neither the SSOT nor credentials.
+Python 3.12+ is required. The existing `uv.lock` pins the environment. The core
+tests use synthetic fixtures and need neither the SSOT nor credentials. Optional
+checks against local study artifacts skip when those assets are absent.
 
 ## Local data
 
@@ -152,6 +136,13 @@ lesson-plan text and assessment items.
 For another local location, set `STUDENTBENCH_SSOT` or pass
 `--ssot /path/to/studentbench_data_ssot` **before the subcommand**. This code only
 reads the SSOT and refuses to write outputs inside it.
+
+With the local SSOT available, optionally verify its Quant and Verbal inputs:
+
+```bash
+uv run studentbench-leaderboard inspect --verify
+uv run studentbench-leaderboard --instrument gre_verbal inspect --verify
+```
 
 The first data adapter reads the primary human AI-vs-AI review study:
 

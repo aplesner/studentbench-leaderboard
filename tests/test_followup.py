@@ -1,5 +1,6 @@
 """Follow-up cache provenance, unavailable members and incremental spending."""
-from contextlib import ExitStack
+from contextlib import ExitStack, redirect_stderr
+import io
 import importlib.util
 import json
 from pathlib import Path
@@ -24,7 +25,25 @@ def module(name):
     return result
 
 
-verify, finish = module("verify"), module("finish")
+verify, finish, prepare = module("verify"), module("finish"), module("prepare")
+
+
+class PrepareCatalogTests(unittest.TestCase):
+    def test_catalog_is_explicit_and_must_be_a_local_file(self):
+        with tempfile.TemporaryDirectory() as directory:
+            missing = Path(directory) / "missing.json"
+            for args in ([], ["--provider-catalog", str(missing)]):
+                with self.subTest(args=args), redirect_stderr(io.StringIO()) as stderr:
+                    with self.assertRaises(SystemExit) as caught:
+                        prepare.main(args)
+                self.assertEqual(caught.exception.code, 2)
+                self.assertIn("provider-catalog" if not args else "Provider catalog", stderr.getvalue())
+            catalog = Path(directory) / "catalog.json"
+            catalog.write_text('{}')
+            with patch.object(prepare, "load", side_effect=RuntimeError("catalog reached")) as load:
+                with self.assertRaisesRegex(RuntimeError, "catalog reached"):
+                    prepare.main(["--provider-catalog", str(catalog)])
+            load.assert_called_once_with(catalog)
 
 
 class FollowupTests(unittest.TestCase):
