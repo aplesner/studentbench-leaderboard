@@ -142,12 +142,19 @@ class LiteLLMJudge:
     model: str
     reasoning_effort: str | None = None
     timeout: int = 180
+    client: object | None = None
 
     def configuration(self) -> dict:
-        return {"adapter": "litellm", "model": self.model,
-                "reasoning_effort": self.reasoning_effort, "timeout": self.timeout}
+        config = {"adapter": "litellm", "model": self.model,
+                  "reasoning_effort": self.reasoning_effort, "timeout": self.timeout}
+        if self.client is not None:
+            config["routing"] = self.client.configuration(self.model, reasoning_effort=self.reasoning_effort)
+        return config
 
     def complete(self, task: Task) -> tuple[str, dict]:
+        if self.client is not None:
+            return self.client.complete(self.model, task.messages(), task.schema(),
+                                        reasoning_effort=self.reasoning_effort, timeout=self.timeout)
         from litellm import completion
 
         kwargs = {"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}

@@ -34,7 +34,7 @@ def request_id(task: Task, judge: ConfiguredJudge) -> str:
 
 
 def compare_plans(plan_a: dict, plan_b: dict, judge_id: str, *, context: ComparisonContext,
-                  judges_dir: Path | None = None) -> dict:
+                  judges_dir: Path | None = None, client: object | None = None) -> dict:
     """Compare two plans using a stable judge ID; resolve subversions internally.
 
     Returns a report-compatible result including every call and normalized vote.
@@ -54,7 +54,7 @@ def compare_plans(plan_a: dict, plan_b: dict, judge_id: str, *, context: Compari
                                                      "context": context.__dict__})
     task = Task(context.instrument, context.subject, list(context.plan_ids), [plan_a, plan_b],
                 context.pretest, context.rubric, fingerprint)
-    judge = ConfiguredJudge(load_definition(judge_id, judges_dir))
+    judge = ConfiguredJudge(load_definition(judge_id, judges_dir), client=client)
     return {"request_id": request_id(task, judge), **evaluate(task, judge)}
 
 
@@ -99,9 +99,16 @@ def aggregate(task: Task, calls: list[dict], strategy: str) -> tuple[dict, dict]
 @dataclass
 class ConfiguredJudge:
     definition: JudgeDefinition
+    client: object | None = None
 
     def configuration(self) -> dict:
-        return self.definition.configuration()
+        config = self.definition.configuration()
+        if self.client is not None:
+            routing = [self.client.configuration(m.model, reasoning_effort=m.reasoning_effort)
+                       for m in self.definition.members]
+            config = {**config, "version": f"{config['version']}-route-{digest(routing)}",
+                      "routing": routing}
+        return config
 
     @property
     def call_count(self) -> int:
@@ -152,7 +159,7 @@ class ConfiguredJudge:
             member = self.definition.members[member_index]
             call_task = self.call_task(task, swapped)
             started = monotonic()
-            raw, metadata = LiteLLMJudge(member.model, member.reasoning_effort).complete(call_task)
+            raw, metadata = LiteLLMJudge(member.model, member.reasoning_effort, client=self.client).complete(call_task)
             ratings = parse_judge_response(raw, call_task)
             normalized = {key: {**rating, "score": -rating["score"]
                                 if swapped and rating["score"] is not None else rating["score"]}

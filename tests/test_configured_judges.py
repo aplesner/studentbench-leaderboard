@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import io
 import json
+import os
 import shutil
 import tempfile
 import unittest
@@ -17,6 +18,7 @@ from studentbench_leaderboard.cli import parser, records_from, run
 from studentbench_leaderboard.comparison import ConfiguredJudge, request_id
 from studentbench_leaderboard.data import Dataset
 from studentbench_leaderboard.judge import LiteLLMJudge, evaluate, make_task
+from studentbench_leaderboard.llm_client import LLMClient
 from studentbench_leaderboard.judge_config import DEFAULT_JUDGES_DIR, check_strategy_history, load_definition
 from studentbench_leaderboard.report import judge_report
 from test_pipeline import fixture
@@ -153,6 +155,24 @@ class ConfiguredJudgeTests(unittest.TestCase):
         reports = judge_report(self.dataset, [first, second, legacy])["judges"]
         self.assertEqual(len(reports), 3)
         self.assertEqual(len({r["judge_version"] for r in reports}), 3)
+
+    def test_historical_and_routed_versions_coexist_and_key_rotation_is_stable(self):
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'first-key'}, clear=True), \
+                patch.object(LiteLLMJudge, 'complete', autospec=True,
+                             side_effect=lambda adapter, task: self.response(task, 1)):
+            historical = self.compare('judge_1')
+            def routed(client):
+                return compare_plans(*self.task.plans, 'judge_1', context=self.context,
+                                     judges_dir=self.configs, client=client)
+            native = routed(LLMClient('openai'))
+            os.environ['OPENAI_API_KEY'] = 'rotated-key'
+            rotated = routed(LLMClient('openai'))
+            router = routed(LLMClient('openrouter'))
+        self.assertEqual(historical['judge_version'], self.definition('judge_1').version)
+        self.assertEqual(native['judge_version'], rotated['judge_version'])
+        self.assertNotEqual(native['judge_version'], router['judge_version'])
+        reports = judge_report(self.dataset, [historical, native, router])['judges']
+        self.assertEqual(len({r['judge_version'] for r in reports}), 3)
 
     def test_strategy_changes_require_new_id_in_existing_results(self):
         original = self.definition("judge_3")

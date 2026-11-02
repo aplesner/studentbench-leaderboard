@@ -1,0 +1,11 @@
+default_profile = "auto"
+# Select another profile with --profile.
+[profiles.tailscale]
+transport = "litellm_proxy"
+api_base_env = "LITELLM_PROXY_API_BASE"
+api_key_env = "LITELLM_PROXY_API_KEY"
+
+# Set a deployment revision and mapping only after confirming them with the proxy administrator.
+# revision = "your-deployment-revision"
+# [profiles.tailscale.models]
+# "openai/gpt-5.6-terra" = "your-confirmed-judge-alias"
