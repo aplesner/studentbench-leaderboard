@@ -191,6 +191,11 @@ quality or rank separation.
 
 ## Project boundaries and next steps
 
+The [integration plan](docs/integration-plan.md) describes the proposed two-command
+workflow for generating a new model's plans and evaluating them against existing
+models, using our LiteLLM proxy over Tailscale or explicit direct provider access.
+Those generation and evaluation commands are not implemented yet.
+
 `../studentbench/` contains the original application, instruments, and data
 collection logic. `../studentbench-analysis/` contains the existing research
 analysis and earlier single/pairwise LLM judging experiments. This project
