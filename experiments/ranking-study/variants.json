@@ -1,0 +1,96 @@
+[
+  {
+    "variant": "luna_low",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-luna",
+    "reasoning_effort": "low"
+  },
+  {
+    "variant": "luna_high",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-luna",
+    "reasoning_effort": "high"
+  },
+  {
+    "variant": "terra_low",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-terra",
+    "reasoning_effort": "low"
+  },
+  {
+    "variant": "terra_high",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-terra",
+    "reasoning_effort": "high"
+  },
+  {
+    "variant": "sol_low",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-sol",
+    "reasoning_effort": "low"
+  },
+  {
+    "variant": "sol_high",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-sol",
+    "reasoning_effort": "high"
+  },
+  {
+    "variant": "astra_low",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-6-astra",
+    "reasoning_effort": "low"
+  },
+  {
+    "variant": "astra_high",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-6-astra",
+    "reasoning_effort": "high"
+  },
+  {
+    "variant": "legacy_luna_low",
+    "judge_id": "judge_1",
+    "response_style": "score_reason",
+    "model": "openai/gpt-5.6-luna",
+    "reasoning_effort": "low"
+  },
+  {
+    "variant": "absolute_luna_high",
+    "judge_id": "judge_6",
+    "response_style": "absolute_ratings",
+    "model": "openai/gpt-5.6-luna",
+    "reasoning_effort": "high"
+  },
+  {
+    "variant": "enhanced_luna_high",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-luna",
+    "reasoning_effort": "high",
+    "label": "luna_high: verified pretest context + human display",
+    "pretest_context": {
+      "file": "question_bank.json",
+      "sha256": "70bc1f1d4d85b93d6f6b23f035a49ac912d4aa5f29787a9510f68072d0a7f336"
+    }
+  },
+  {
+    "variant": "enhanced_terra_high",
+    "judge_id": "judge_5",
+    "response_style": "evidence_winner",
+    "model": "openai/gpt-5.6-terra",
+    "reasoning_effort": "high",
+    "label": "terra_high: verified pretest context + human display",
+    "pretest_context": {
+      "file": "question_bank.json",
+      "sha256": "70bc1f1d4d85b93d6f6b23f035a49ac912d4aa5f29787a9510f68072d0a7f336"
+    }
+  }
+]

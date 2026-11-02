@@ -1,0 +1,23 @@
+schema_version = 1
+judge_id = "judge_4"
+description = "Example three-model panel; one AB vote per model. Configure provider credentials before use."
+strategy = "panel"
+
+[prompts]
+system = "prompts/pairwise_system.txt"
+user = "prompts/pairwise_user.txt"
+
+# These are editable examples, not a calibrated or recommended panel.
+# Keep the member slot names stable when changing models or reasoning effort.
+[[members]]
+name = "member_1"
+model = "openai/gpt-5.6-luna"
+reasoning_effort = "low"
+
+[[members]]
+name = "member_2"
+model = "anthropic/claude-haiku-4-5"
+
+[[members]]
+name = "member_3"
+model = "gemini/gemini-3.1-pro-preview"

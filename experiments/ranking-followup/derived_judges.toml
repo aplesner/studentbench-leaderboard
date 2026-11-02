@@ -1,0 +1,62 @@
+schema_version = 1
+
+[[judges]]
+judge_id = "judge_14"
+variant = "panel_trio"
+label = "Terra + DeepSeek Flash + GLM Flash"
+aggregation = "soft"
+description = "Small panel selected using earlier validation evidence; one model per family, equal votes. Exploratory comparison on reused validation data."
+
+[[judges.members]]
+variant = "enhanced_terra_high"
+draw = 0
+
+[[judges.members]]
+variant = "or_deepseek41_flash_high"
+draw = 0
+
+[[judges.members]]
+variant = "or_glm53_flash_high"
+draw = 0
+
+[[judges]]
+judge_id = "judge_15"
+variant = "panel_trio_kimi"
+label = "Terra + DeepSeek Flash + Kimi"
+aggregation = "soft"
+description = "Small panel selected using earlier validation evidence; one model per family, equal votes. Exploratory comparison on reused validation data."
+
+[[judges.members]]
+variant = "enhanced_terra_high"
+draw = 0
+
+[[judges.members]]
+variant = "or_deepseek41_flash_high"
+draw = 0
+
+[[judges.members]]
+variant = "or_kimi3_high"
+draw = 0
+
+[[judges]]
+judge_id = "judge_16"
+variant = "panel_quartet_qwen"
+label = "Terra + DeepSeek Flash + GLM Flash + Qwen"
+aggregation = "soft"
+description = "Small panel selected using earlier validation evidence; one model per family, equal votes. Exploratory comparison on reused validation data."
+
+[[judges.members]]
+variant = "enhanced_terra_high"
+draw = 0
+
+[[judges.members]]
+variant = "or_deepseek41_flash_high"
+draw = 0
+
+[[judges.members]]
+variant = "or_glm53_flash_high"
+draw = 0
+
+[[judges.members]]
+variant = "qwen38_max_high"
+draw = 0

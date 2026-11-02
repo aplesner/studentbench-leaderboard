@@ -6,6 +6,7 @@ from collections import defaultdict
 from statistics import correlation, mean
 
 from .data import Dataset, score
+from .judge_config import check_strategy_history
 
 
 def sign(value: float) -> int:
@@ -83,10 +84,11 @@ def judge_report(dataset: Dataset, records: list[dict], level: str = "model") ->
     values = defaultdict(lambda: defaultdict(list))
     abstentions = defaultdict(lambda: defaultdict(int))
     seen = set()
+    strategy_history = {}
     for record in records:
         if record["instrument"] != dataset.instrument:
             continue
-        if record.get("schema_version") != 1:
+        if record.get("schema_version") not in (1, 2):
             raise ValueError("Unsupported judgment record schema")
         if record["dataset_sha256"] != dataset.fingerprint:
             raise ValueError("Results were generated from different SSOT inputs")
@@ -94,7 +96,14 @@ def judge_report(dataset: Dataset, records: list[dict], level: str = "model") ->
         if request_id in seen:
             raise ValueError(f"Duplicate request in results: {request_id}")
         seen.add(request_id)
-        judge_id = record["judge_id"]
+        if record["schema_version"] == 2:
+            previous = strategy_history.get(record["judge_id"])
+            check_strategy_history(record["judge"], [previous] if previous else [])
+            strategy_history[record["judge_id"]] = record
+        # Named IDs resolve to multiple versions; never pool those versions in a report.
+        judge_id = record.get("judge_version", record["judge_id"])
+        if judge_id in judges and judges[judge_id] != record["judge"]:
+            raise ValueError(f"Conflicting configuration for judge version {judge_id}")
         judges[judge_id] = record["judge"]
         for criterion in record["criteria"]:
             key = unit(record["mode"], record["subject"], record["plan_ids"],
@@ -127,7 +136,8 @@ def judge_report(dataset: Dataset, records: list[dict], level: str = "model") ->
                     mean(sign(a) == sign(b) for a, b in zip(predicted, human))
                     if matched and mode == "pairwise" else None),
             })
-        reports.append({"judge_id": judge_id, "judge": config, "agreement": agreement,
+        reports.append({"judge_id": config.get("judge_id", judge_id), "judge_version": judge_id,
+                        "judge": config, "agreement": agreement,
                         "leaderboard": leaderboard(dataset, values[judge_id], level)})
     return {"instrument": dataset.instrument, "dataset_sha256": dataset.fingerprint,
             "interpretation": "Descriptive, per-criterion estimates; no claim of rank significance. "

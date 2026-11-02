@@ -6,6 +6,12 @@ the exact rubric/scale definitions. A `Judge` implementation returns structured
 scores and concise explanations. `LiteLLMJudge` is the initial provider adapter;
 tests supply a deterministic synthetic implementation of the same interface.
 
+Named two-plan judges now wrap that provider adapter in configurable strategies.
+The public `compare_plans(plan_a, plan_b, judge_id, context=...)` API selects a
+TOML definition and resolves its internal subversion. See
+[configuring judges](judges.md) for single-call, order-check, repeated-vote, and
+panel strategies, aggregation rules, and stored call-level evidence.
+
 Each model call evaluates all criteria in the selected review. Single mode
 returns a 1–5 score per criterion; pairwise mode returns −2, −1, 0, +1, or +2
 relative to the presented A plan. `null` means the judge abstained. Response
@@ -18,8 +24,11 @@ Saved judgments include the instrument, subject and plan IDs, presented order,
 criterion and scale IDs, actual input-file fingerprint, prompt version and
 hash, judge configuration, returned model identifier, token usage, timestamp,
 raw response, and a request hash. Exact completed requests are reusable.
-Changing the prompt requires incrementing `PROMPT_VERSION` so reports keep
-different judge definitions separate. Library dependencies are pinned in
+Named judges derive subversions from prompt content and model/reasoning settings
+automatically. Other strategy changes require a new public judge ID. The
+legacy ad hoc path uses `PROMPT_VERSION`, which must be incremented when that
+path's built-in prompt changes. Reports keep resolved versions separate.
+Library dependencies are pinned in
 `uv.lock`; a provider may still update an unversioned model alias.
 
 Human agreement units are:

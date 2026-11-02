@@ -8,8 +8,12 @@ import os
 from pathlib import Path
 
 from .data import Dataset, INSTRUMENTS, digest
+from .comparison import ConfiguredJudge, request_id as configured_request_id
 from .judge import LiteLLMJudge, evaluate, make_task
+from .judge_config import DEFAULT_JUDGES_DIR, check_strategy_history, load_definition
 from .report import human_scores, judge_report, leaderboard
+
+DEFAULT_RESULTS = Path("results/judgments.jsonl")
 
 
 def records_from(path: Path) -> list[dict]:
@@ -39,6 +43,8 @@ def parser() -> argparse.ArgumentParser:
     root.add_argument("--ssot", type=Path, default=Path(os.environ.get("STUDENTBENCH_SSOT", "studentbench_data_ssot")))
     root.add_argument("--instrument", choices=INSTRUMENTS, default="gre_quant")
     commands = root.add_subparsers(dest="command", required=True)
+    registry = commands.add_parser("judges", help="List configured judge IDs, versions, and call counts")
+    registry.add_argument("--judges-dir", type=Path, default=DEFAULT_JUDGES_DIR)
     inspect = commands.add_parser("inspect", help="Validate joins and summarize available data")
     inspect.add_argument("--verify", action="store_true", help="Verify six input files against the SSOT manifest")
     listing = commands.add_parser("reviews", help="List review IDs and their lesson-plan IDs")
@@ -51,10 +57,15 @@ def parser() -> argparse.ArgumentParser:
     judge.add_argument("--mode", choices=("single", "pairwise"), default="pairwise")
     judge.add_argument("--slot", choices=("a", "b"), default="a", help="Plan to rate in single mode")
     judge.add_argument("--swap", action="store_true", help="Reverse A/B to audit position bias")
-    judge.add_argument("--model", help="Explicit LiteLLM provider/model identifier")
+    identity = judge.add_mutually_exclusive_group()
+    identity.add_argument("--judge", help="Configured judge ID, e.g. judge_1")
+    identity.add_argument("--model", help="Ad hoc LiteLLM provider/model identifier")
+    judge.add_argument("--judges-dir", type=Path, default=DEFAULT_JUDGES_DIR)
     judge.add_argument("--reasoning-effort")
     judge.add_argument("--dry-run", action="store_true", help="Write exact prompts; no model import or API call")
-    judge.add_argument("--output", type=Path, help="JSONL results, or JSON prompt previews with --dry-run")
+    judge.add_argument("--output", type=Path,
+                       help=f"JSONL results (default: {DEFAULT_RESULTS}); with --dry-run, "
+                            "write JSON prompt previews here instead of stdout")
     report = commands.add_parser("report", help="Compare saved judge ratings with humans and rank plans/models")
     report.add_argument("results", type=Path)
     report.add_argument("--level", choices=("model", "plan"), default="model")
@@ -67,6 +78,16 @@ def parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> None:
+    if args.command == "judges":
+        if not args.judges_dir.is_dir():
+            raise ValueError(f"Judge configuration directory not found: {args.judges_dir}")
+        definitions = [load_definition(path.stem, args.judges_dir)
+                       for path in sorted(args.judges_dir.glob("*.toml"))]
+        print(json.dumps([{"judge_id": d.judge_id, "version": d.version, "strategy": d.strategy,
+                           "calls_per_comparison": d.call_count, "description": d.description,
+                           "members": [m.configuration() for m in d.members]}
+                          for d in definitions], indent=2))
+        return
     dataset = Dataset(args.ssot, args.instrument)
     if args.command == "inspect":
         summary = dataset.summary()
@@ -96,30 +117,46 @@ def run_judge(args: argparse.Namespace, dataset: Dataset) -> None:
         raise ValueError("--plans requires --grading-id for the rubric and pretest context")
     if args.limit is not None and args.limit < 1:
         raise ValueError("--limit must be positive")
-    if not args.dry_run and (not args.model or not args.output):
-        raise ValueError("Model calls require --model and --output (use results/*.jsonl)")
-    if args.output:
-        path = output_path(args.output, dataset)
-    else:
-        path = None
-    judge = LiteLLMJudge(args.model or "dry-run", args.reasoning_effort)
+    if not args.dry_run and not (args.judge or args.model):
+        raise ValueError("Model calls require --judge or --model")
+    if args.judge and args.reasoning_effort:
+        raise ValueError("Set reasoning_effort in the judge TOML; its subversion updates automatically")
+    destination = args.output
+    if destination is None and not args.dry_run:
+        destination = DEFAULT_RESULTS
+    path = output_path(destination, dataset) if destination is not None else None
+    judge = (ConfiguredJudge(load_definition(args.judge, args.judges_dir)) if args.judge else
+             LiteLLMJudge(args.model or "dry-run", args.reasoning_effort))
     ids = [args.grading_id] if args.grading_id else sorted(dataset.sessions)
     tasks, seen = [], set()
     for grading_id in ids:
         task = make_task(dataset, grading_id, args.plans, args.mode, args.slot, args.swap)
-        request_id = digest({"task": task.metadata(), "judge": judge.configuration()})
+        if isinstance(judge, ConfiguredJudge):
+            judge.schedule(task)  # Validate the two-plan strategy before any provider call.
+        request_id = (configured_request_id(task, judge) if isinstance(judge, ConfiguredJudge) else
+                      digest({"task": task.metadata(), "judge": judge.configuration()}))
         if request_id not in seen:
             seen.add(request_id)
             tasks.append((request_id, task))
         if args.limit and len(tasks) >= args.limit:
             break
     if args.dry_run:
-        emit({"calls": len(tasks), "tasks": [{"request_id": request_id, **task.metadata(),
-              "messages": task.messages(), "response_schema": task.schema()} for request_id, task in tasks]},
-             path, dataset)
+        previews = []
+        for request_id, task in tasks:
+            detail = (judge.preview(task) if isinstance(judge, ConfiguredJudge) else
+                      {"messages": task.messages(), "response_schema": task.schema(), "call_count": 1})
+            previews.append({"request_id": request_id, **task.metadata(), **detail})
+        emit({"calls": sum(item["call_count"] for item in previews), "tasks": previews}, path, dataset)
         return
-    existing = {r["request_id"] for r in records_from(path)} if path.exists() else set()
+    previous = records_from(path) if path.exists() else []
+    if isinstance(judge, ConfiguredJudge):
+        check_strategy_history(judge.configuration(), previous)
+    existing = {r["request_id"] for r in previous}
     completed = 0
+    pending = sum(request_id not in existing for request_id, _ in tasks)
+    if isinstance(judge, ConfiguredJudge):
+        print(f"Using {judge.definition.version}: {pending} comparisons, "
+              f"{pending * judge.call_count} model calls; results: {path}", flush=True)
     for request_id, task in tasks:
         if request_id in existing:
             continue

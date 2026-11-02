@@ -1,0 +1,13 @@
+schema_version = 1
+judge_id = "judge_1"
+description = "One LLM call comparing A and B."
+strategy = "single"
+
+[prompts]
+system = "prompts/pairwise_system.txt"
+user = "prompts/pairwise_user.txt"
+
+[[members]]
+name = "member_1"
+model = "openai/gpt-5.6-luna"
+reasoning_effort = "low"

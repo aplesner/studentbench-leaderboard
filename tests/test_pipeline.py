@@ -6,6 +6,7 @@ import csv
 import json
 import tempfile
 import unittest
+from contextlib import chdir
 from pathlib import Path
 from unittest.mock import patch
 
@@ -195,6 +196,26 @@ class PipelineTests(unittest.TestCase):
         self.assertEqual(spearman([1, 1, 3], [5, 5, 9]), 1)
         self.assertIsNone(spearman([1, 1], [1, 2]))
         self.assertIsNone(spearman([], []))
+
+    def test_default_results_resume_and_dry_run_preserves_saved_judgments(self):
+        task = make_task(self.dataset, "g1")
+        args = ["--ssot", str(self.root), "judge", "--grading-id", "g1", "--model", "synthetic/test"]
+        with chdir(self.temp.name), patch("builtins.print"), patch(
+            "studentbench_leaderboard.judge.LiteLLMJudge.complete",
+            return_value=(self.result(task, [2, 0]), {}),
+        ) as call:
+            output = Path("results/judgments.jsonl")
+            run(parser().parse_args(args + ["--dry-run"]))
+            call.assert_not_called()
+            self.assertFalse(output.exists())
+            run(parser().parse_args(args))
+            saved = output.read_bytes()
+            run(parser().parse_args(args))
+            self.assertEqual(call.call_count, 1)
+            self.assertEqual(len(records_from(output)), 1)
+            run(parser().parse_args(args + ["--dry-run"]))
+            self.assertEqual(output.read_bytes(), saved)
+            self.assertEqual(call.call_count, 1)
 
 
 if __name__ == "__main__":

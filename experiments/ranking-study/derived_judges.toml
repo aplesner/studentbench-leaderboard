@@ -1,0 +1,22 @@
+# Offline composition of independently cached calls; value is mean win share.
+# A 0.5 average can reflect disagreement and is not an asserted human-style tie.
+[judge_7]
+strategy = "balanced_order_soft"
+member_variant = "enhanced_luna_high"
+draws = [0, 1]
+aggregation = "mean_win_share"
+missing = "abstain_if_any_member_missing"
+
+[judge_8]
+strategy = "panel_soft"
+member_models = ["luna", "terra", "sol", "astra"]
+efforts = ["low", "high"]
+aggregation = "mean_win_share"
+missing = "abstain_if_any_member_missing"
+
+[judge_9]
+strategy = "panel_strict"
+member_models = ["luna", "terra", "sol", "astra"]
+efforts = ["low", "high"]
+aggregation = "strict_direction_majority"
+missing = "included_in_majority_denominator"

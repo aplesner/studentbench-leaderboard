@@ -6,9 +6,9 @@ the human expert ratings in the frozen StudentBench SSOT.
 The initial implementation is a Python CLI and a small library. It supports
 single-plan quality ratings (1–5), pairwise preferences (−2 to +2), descriptive
 plan/model leaderboards, and agreement reports on matching human reviews. A
-judge can abstain with `null`; a pairwise score of zero means a tie. No judge has
-yet been validated by this project, and no model calls are needed for setup or
-the tests.
+judge can abstain with `null`; a pairwise score of zero means a tie. The ranking
+study evaluates model-level alignment on separate validation and test subjects.
+No model calls are needed for setup or the tests.
 
 ## Setup
 
@@ -48,6 +48,30 @@ See [the data notes](docs/data.md) for the snapshot and join contract.
 
 ## Inspect and score plans
 
+For configurable two-plan judging, start with a named judge:
+
+```bash
+uv run studentbench-leaderboard judges
+uv run studentbench-leaderboard judge \
+  --grading-id ai_vs_ai_quant_grading_0001 --judge judge_5 --dry-run
+uv run studentbench-leaderboard judge \
+  --grading-id ai_vs_ai_quant_grading_0001 --judge judge_5
+```
+
+[`judge_5.toml`](src/studentbench_leaderboard/judge_configs/judge_5.toml) defines
+an explicit-winner judge with evidence and explanations. `judge_6` derives a
+preference from per-plan ratings; `judge_7` averages AB/BA votes; `judge_8` uses
+a model panel. The original signed-score judges remain available as
+`judge_1`–`judge_4`. Prompt/model/reasoning changes automatically get new
+subversions under the same public ID. Other strategy changes require a new ID.
+The bundled examples are separate from the frozen study selection.
+
+The Python API is `compare_plans(plan_a, plan_b, "judge_5", context=...)`.
+See [configuring judges](docs/judges.md) for TOML configuration, shared pretest
+and rubric context, exact voting rules, and result provenance. Definitions and
+prompt assets are included in the Python package; `--judges-dir PATH` selects
+a separate configuration directory.
+
 List review IDs and their plan IDs:
 
 ```bash
@@ -74,9 +98,10 @@ belong to the review's pretest subject. This initial CLI accepts plans from the
 SSOT review catalog; the library's `Task` type also accepts supplied plan JSON,
 pretest context, and a rubric.
 
-For actual judging, select a LiteLLM `provider/model` identifier and configure
-that provider's credentials in the environment. There is no implicit default
-judge, fallback provider, or automatic retry. The provider must support the
+For ad hoc judging, select a LiteLLM `provider/model` identifier and configure
+that provider's credentials in the environment. For named judges, models and
+reasoning effort come from TOML. There is no implicit default judge, fallback
+provider, or automatic retry. The provider must support the
 structured response format. See the official
 [LiteLLM structured-output documentation](https://docs.litellm.ai/docs/completion/json_mode).
 
@@ -84,10 +109,14 @@ structured response format. See the official
 export JUDGE_MODEL='provider/model-id'  # replace with your chosen model
 uv run studentbench-leaderboard judge \
   --grading-id ai_vs_ai_quant_grading_0001 \
-  --model "$JUDGE_MODEL" --output results/judgments.jsonl
+  --model "$JUDGE_MODEL"
 ```
 
-`--reasoning-effort` passes an explicit setting to the provider. `--swap`
+Judgments default to `results/judgments.jsonl`. Use `--output PATH` to choose
+another file. Re-running a completed request reuses its saved result. With
+`--dry-run`, omitting `--output` prints the prompt preview to stdout.
+
+With `--model`, `--reasoning-effort` passes an explicit setting to the provider. `--swap`
 reverses A/B and records that orientation; use both orientations to investigate
 position bias. Malformed responses fail validation and are never scored as
 zero. A failed call does not append a judgment; earlier completed calls remain
@@ -102,6 +131,28 @@ data, prompt, plan order, rubric, and judge configuration. Prompt previews are
 JSON documents; actual results are JSONL. Use separate paths for each.
 
 ## Leaderboards and human agreement
+
+The model-ranking study now compares human and AI **authoring-model
+leaderboards**, with subject-separated development/validation/test data,
+Bradley–Terry ratings, uncertainty, human–human agreement, and sampling-density
+experiments. It evaluates Luna, Terra, Sol, and Astra at low/high reasoning
+effort, evidence-based winners, per-plan ratings, balanced presentation, and
+panels. The reproducible protocol and commands are in
+[the ranking-study guide](docs/ranking-study.md).
+
+The [provider and example extension](docs/ranking-extension.md) adds the nine
+requested OpenRouter model configurations, a controlled Terra comparison with
+one human-graded development example, and panels with equal model or provider
+family weights. It reuses the original validation cohort after test exposure;
+its results are exploratory. The report includes a judge catalog with exact
+prompts, settings, aggregation rules and example provenance.
+
+The local HTML artifact is `results/ranking-study-20260910/report.html`; it
+contains interactive model rankings, per-criterion comparisons, human and AI
+density curves, and the explanation audit. Raw calls and generated outputs stay
+under ignored `results/`. The older commands below retain their descriptive
+win-share semantics; the study uses the separate `ranking` and `study_analysis`
+modules for opponent-adjusted model rankings.
 
 Build a reference leaderboard without making any model calls:
 
@@ -147,9 +198,8 @@ builds on their conventions while reading the frozen SSOT directly; it does
 not connect to the production database or import the neighboring projects at
 runtime.
 
-Next steps are to select and calibrate judge J, define development/test splits
-by pretest subject, benchmark on held-out human reviews, and add uncertainty
-estimates and a leaderboard UI. The SSOT also contains an AI-vs-human
+Further calibration should use a fresh held-out student cohort for confirmation,
+repeat model generations and vary the development examples. The SSOT also contains an AI-vs-human
 supplement and historical LLM judge calls; neither is pooled into this initial
 adapter. Bulk data storage is deliberately deferred. An access-controlled
 GCS bucket with immutable release objects and checksum-verified downloads is

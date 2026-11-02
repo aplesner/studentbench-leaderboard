@@ -1,0 +1,30 @@
+schema_version = 1
+judge_id = "judge_8"
+strategy = "panel_soft"
+response_style = "evidence_winner"
+plan_projection = "human_display"
+description = "Example four-model low-effort panel; average win shares for ranking and retain strict-majority categorical diagnostics."
+
+[prompts]
+system = "prompts/evidence_winner.txt"
+user = "prompts/pairwise_user.txt"
+
+[[members]]
+name = "member_1"
+model = "openai/gpt-5.6-luna"
+reasoning_effort = "low"
+
+[[members]]
+name = "member_2"
+model = "openai/gpt-5.6-terra"
+reasoning_effort = "low"
+
+[[members]]
+name = "member_3"
+model = "openai/gpt-5.6-sol"
+reasoning_effort = "low"
+
+[[members]]
+name = "member_4"
+model = "openai/gpt-6-astra"
+reasoning_effort = "low"

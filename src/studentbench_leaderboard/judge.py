@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from string import Template
 from typing import Protocol
 
 from .data import Dataset, digest
@@ -26,6 +27,8 @@ class Task:
     pretest: list[dict]
     rubric: list[dict]
     dataset_sha256: str
+    system_prompt: str | None = None
+    user_template: str | None = None
 
     @property
     def mode(self) -> str:
@@ -56,8 +59,11 @@ class Task:
             )
         payload = {"instrument": self.instrument, "pretest": self.pretest, "rubric": self.rubric,
                    "plans": {slot: plan for slot, plan in zip(("A", "B"), self.plans)}}
-        return [{"role": "system", "content": instructions},
-                {"role": "user", "content": json.dumps(payload, ensure_ascii=False, allow_nan=False)}]
+        content = json.dumps(payload, ensure_ascii=False, allow_nan=False)
+        if self.user_template is not None:
+            content = Template(self.user_template).substitute(payload=content)
+        return [{"role": "system", "content": self.system_prompt or instructions},
+                {"role": "user", "content": content}]
 
     def schema(self) -> dict:
         values = [1, 2, 3, 4, 5, None] if self.mode == "single" else [-2, -1, 0, 1, 2, None]
@@ -145,6 +151,10 @@ class LiteLLMJudge:
         from litellm import completion
 
         kwargs = {"reasoning_effort": self.reasoning_effort} if self.reasoning_effort else {}
+        # The pinned LiteLLM capability registry predates Astra. Its Chat
+        # Completions API accepts this setting; preserve it rather than dropping it.
+        if self.model == "openai/gpt-6-astra" and self.reasoning_effort:
+            kwargs["allowed_openai_params"] = ["reasoning_effort"]
         response = completion(
             model=self.model, messages=task.messages(), timeout=self.timeout, num_retries=0,
             response_format={"type": "json_schema", "json_schema": {
@@ -163,7 +173,11 @@ def evaluate(task: Task, judge: Judge) -> dict:
     raw, response_metadata = judge.complete(task)
     # A malformed response is an error, never a zero or a partially accepted judgment.
     ratings = parse_result(raw, task)
-    return {"schema_version": 1, **task.metadata(), "judge": config,
-            "judge_id": digest({"config": config, "prompt_version": PROMPT_VERSION}),
-            "created_at": datetime.now(timezone.utc).isoformat(),
-            "ratings": ratings, "raw_response": raw, **response_metadata}
+    record = {"schema_version": 1, **task.metadata(), "judge": config,
+              "judge_id": digest({"config": config, "prompt_version": PROMPT_VERSION}),
+              "created_at": datetime.now(timezone.utc).isoformat(),
+              "ratings": ratings, "raw_response": raw, **response_metadata}
+    if "judge_id" in config:
+        record.update(schema_version=2, judge_id=config["judge_id"],
+                      judge_version=config["version"], judge_fingerprint=digest(config))
+    return record

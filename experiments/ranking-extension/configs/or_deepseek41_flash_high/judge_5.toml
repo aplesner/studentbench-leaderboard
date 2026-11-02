@@ -1,0 +1,13 @@
+schema_version = 1
+judge_id = "judge_5"
+strategy = "single"
+response_style = "evidence_winner"
+plan_projection = "human_display"
+description = "deepseek/deepseek-v4.1-flash \u00b7 high \u00b7 no human example"
+[prompts]
+system = "prompts/system.txt"
+user = "prompts/user.txt"
+[[members]]
+name = "member_1"
+model = "openrouter/deepseek/deepseek-v4.1-flash"
+reasoning_effort = "high"

@@ -1,0 +1,13 @@
+schema_version = 1
+judge_id = "judge_5"
+strategy = "single"
+response_style = "evidence_winner"
+plan_projection = "human_display"
+description = "Terra high \u00b7 one human-graded development example"
+[prompts]
+system = "prompts/system.txt"
+user = "prompts/user.txt"
+[[members]]
+name = "member_1"
+model = "openai/gpt-5.6-terra"
+reasoning_effort = "high"

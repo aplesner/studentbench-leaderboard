@@ -1,0 +1,73 @@
+schema_version = 1
+
+[[judges]]
+judge_id = "judge_12"
+variant = "or_panel_eight_available_high"
+label = "Eight available models · equal member weights · high"
+aggregation = "soft"
+description = "Availability-only amendment: omit Muse after its preflight HTTP 404 under the existing account guardrail. Average all eight remaining members; every member is required. No judgment outcomes informed membership."
+
+[[judges.members]]
+variant = "or_gemini38_flash_high"
+draw = 0
+[[judges.members]]
+variant = "or_opus5_high"
+draw = 0
+[[judges.members]]
+variant = "or_sonnet5_high"
+draw = 0
+[[judges.members]]
+variant = "or_deepseek41_flash_high"
+draw = 0
+[[judges.members]]
+variant = "or_deepseek4_pro0813_high"
+draw = 0
+[[judges.members]]
+variant = "or_kimi3_high"
+draw = 0
+[[judges.members]]
+variant = "or_glm53_high"
+draw = 0
+[[judges.members]]
+variant = "or_glm53_flash_high"
+draw = 0
+
+[[judges]]
+judge_id = "judge_13"
+variant = "or_panel_five_families_available_high"
+label = "Eight available models · equal five-family weights · high"
+aggregation = "soft"
+description = "Availability-only amendment: omit Muse after its preflight HTTP 404 under the existing account guardrail. Google, Anthropic, DeepSeek, Moonshot, and Z.AI each receive one-fifth of total weight. Every remaining member is required; no judgment outcomes informed membership."
+
+[[judges.members]]
+variant = "or_gemini38_flash_high"
+draw = 0
+weight = 1.0
+[[judges.members]]
+variant = "or_opus5_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_sonnet5_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_deepseek41_flash_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_deepseek4_pro0813_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_kimi3_high"
+draw = 0
+weight = 1.0
+[[judges.members]]
+variant = "or_glm53_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_glm53_flash_high"
+draw = 0
+weight = 0.5

@@ -1,0 +1,80 @@
+schema_version = 1
+
+[[judges]]
+judge_id = "judge_10"
+variant = "or_panel_nine_high"
+label = "Nine-model panel · equal member weights · high"
+aggregation = "soft"
+description = "Prespecified mean of all nine OpenRouter member win shares. Every member is required for each criterion."
+
+[[judges.members]]
+variant = "or_gemini38_flash_high"
+draw = 0
+[[judges.members]]
+variant = "or_opus5_high"
+draw = 0
+[[judges.members]]
+variant = "or_sonnet5_high"
+draw = 0
+[[judges.members]]
+variant = "or_deepseek41_flash_high"
+draw = 0
+[[judges.members]]
+variant = "or_deepseek4_pro0813_high"
+draw = 0
+[[judges.members]]
+variant = "or_kimi3_high"
+draw = 0
+[[judges.members]]
+variant = "or_glm53_high"
+draw = 0
+[[judges.members]]
+variant = "or_glm53_flash_high"
+draw = 0
+[[judges.members]]
+variant = "or_muse13_high"
+draw = 0
+
+[[judges]]
+judge_id = "judge_11"
+variant = "or_panel_family_balanced_high"
+label = "Nine-model panel · equal family weights · high"
+aggregation = "soft"
+description = "Prespecified equal-family mean: Google, Anthropic, DeepSeek, Moonshot, Z.AI, and Meta each receive one-sixth of total weight. Every member is required for each criterion."
+
+[[judges.members]]
+variant = "or_gemini38_flash_high"
+draw = 0
+weight = 1.0
+[[judges.members]]
+variant = "or_opus5_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_sonnet5_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_deepseek41_flash_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_deepseek4_pro0813_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_kimi3_high"
+draw = 0
+weight = 1.0
+[[judges.members]]
+variant = "or_glm53_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_glm53_flash_high"
+draw = 0
+weight = 0.5
+[[judges.members]]
+variant = "or_muse13_high"
+draw = 0
+weight = 1.0

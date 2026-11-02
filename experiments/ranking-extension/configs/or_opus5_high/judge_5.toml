@@ -1,0 +1,13 @@
+schema_version = 1
+judge_id = "judge_5"
+strategy = "single"
+response_style = "evidence_winner"
+plan_projection = "human_display"
+description = "anthropic/claude-opus-5 \u00b7 high \u00b7 no human example"
+[prompts]
+system = "prompts/system.txt"
+user = "prompts/user.txt"
+[[members]]
+name = "member_1"
+model = "openrouter/anthropic/claude-opus-5"
+reasoning_effort = "high"
