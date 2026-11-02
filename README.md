@@ -26,6 +26,15 @@ against existing plans for the same students and writes `evaluation.json`,
 `leaderboard.csv`, and `report.html` in `results/new-model/evaluation/`.
 The generation model and the benchmark's selected judge are separate.
 
+For a joint leaderboard with several new generators, run `evaluate-many` with
+their generation directories and an output directory. This fits one model graph
+and includes new-to-new plan comparisons:
+
+```bash
+uv run studentbench-leaderboard evaluate-many \
+  results/model-a results/model-b --output results/combined
+```
+
 Compatible judgments are reused from `results/judge-cache` across candidate
 models; override this with `--cache-dir PATH` or `STUDENTBENCH_JUDGE_CACHE`.
 Changing the judge route can require fresh baseline judgments once; subsequent
@@ -280,6 +289,13 @@ reviewers and plans are not independent observations. See
 quality or rank separation.
 
 ## Project boundaries and next steps
+
+The [roadmap](docs/roadmap.md) separates the first public leaderboard from v1.1,
+which will test Jev and other decision models as lesson-plan judges.
+
+Our own first-release runs use the Tailscale-only
+[release runner](experiments/public-release/README.md), while the public CLI
+retains its provider-key defaults.
 
 The [integration plan](docs/integration-plan.md) records the implementation design
 for the two-command workflow and its verification requirements. OpenRouter with
