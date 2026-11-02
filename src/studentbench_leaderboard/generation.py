@@ -3,12 +3,14 @@ from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import contextmanager
 import fcntl
+from datetime import datetime, timezone
 import json
 import os
 from pathlib import Path
 import re
 import time
 import threading
+import uuid
 from .data import digest
 
 RENDERER = 'studentbench.raw-pretest.v1'
@@ -43,6 +45,19 @@ def _write(path, obj):
     if temp.is_symlink(): raise ValueError(f'Symlink temporary target: {temp}')
     temp.write_text(json.dumps(obj,ensure_ascii=False,indent=2,allow_nan=False)+'\n')
     os.replace(temp,path)
+
+def _write_new(path, obj):
+    """Atomically publish a new ledger entry without replacing any prior entry."""
+    if path.is_symlink(): raise ValueError(f'Symlink output target: {path}')
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temp = path.with_name(path.name + f'.{uuid.uuid4().hex}.tmp')
+    try:
+        with temp.open('x', encoding='utf-8') as stream:
+            json.dump(obj, stream, ensure_ascii=False, indent=2, allow_nan=False)
+            stream.write('\n')
+        os.link(temp, path, follow_symlinks=False)
+    finally:
+        temp.unlink(missing_ok=True)
 
 @contextmanager
 def _lock(output):
@@ -188,27 +203,44 @@ def run_generation(benchmark, output, model, client, *, dry_run=False, limit=Non
             counts['complete'] = not todo
             return counts
         budget_lock = threading.Lock()
+        invocation_id = uuid.uuid4().hex
         attempts_started = 0
         def call(req):
             nonlocal attempts_started
             key=digest(req); path=output/'generations'/f'{key}.json'
             for attempt in range(1,4):
                 with budget_lock:
-                    if attempts_started >= max_new_calls: return None
+                    if attempts_started >= max_new_calls: return False if attempt > 1 else None
                     attempts_started += 1
                 start=time.monotonic()
+                attempt_path = None
                 try:
                     raw, meta=client.complete(model,req['messages'],SCHEMA,reasoning_effort=reasoning_effort,timeout=timeout,**settings)
+                    attempt_path = output/'generation_attempts'/f'{key}-{invocation_id}-{attempt}.json'
+                    _write_new(attempt_path, {'request_id':key, 'request':req, 'raw_response':raw,
+                        'metadata':meta, 'duration_seconds':time.monotonic()-start,
+                        'received_at':datetime.now(timezone.utc).isoformat(),
+                        'invocation_id':invocation_id, 'attempt':attempt})
                     plan=_validate(raw); pid='generated_'+key[:24]
                     _write(path,{'request':req,'request_id':key,'raw_response':raw,'plan_as_stored':plan,'lesson_plan_id':pid,
                         'ai_model_preset_id':model,'review_subject_ids':[req['subject']],'metadata':meta,
                         'duration_seconds':time.monotonic()-start,'attempts':attempt})
                     return True
                 except Exception as exc:
+                    if attempt_path is None and hasattr(exc, 'response_metadata'):
+                        attempt_path = output/'generation_attempts'/f'{key}-{invocation_id}-{attempt}.json'
+                        _write_new(attempt_path, {'request_id':key, 'request':req,
+                            'raw_response':getattr(exc, 'raw_response', None),
+                            'metadata':exc.response_metadata, 'duration_seconds':time.monotonic()-start,
+                            'received_at':datetime.now(timezone.utc).isoformat(),
+                            'invocation_id':invocation_id, 'attempt':attempt})
                     msg=str(exc)
                     for k,v in os.environ.items():
                         if any(x in k.upper() for x in ('KEY','TOKEN','SECRET','PASSWORD')) and len(v)>8: msg=msg.replace(v,'[REDACTED]')
-                    _write(output/'generation_errors'/f'{key}-{attempt}.json',{'request_id':key,'attempt':attempt,'type':type(exc).__name__,'message':msg[:1000]})
+                    _write_new(output/'generation_errors'/f'{key}-{invocation_id}-{attempt}.json',
+                        {'request_id':key, 'invocation_id':invocation_id, 'attempt':attempt,
+                         'attempt_file':str(attempt_path.relative_to(output)) if attempt_path and attempt_path.exists() else None,
+                         'type':type(exc).__name__,'message':msg[:1000]})
                     transient=getattr(exc,'transient',False) or getattr(exc,'status_code',None) in (408,429,500,502,503,504) or type(exc).__name__ in ('APIConnectionError','APITimeoutError','Timeout','RateLimitError')
                     if not transient or attempt==3: return False
                     time.sleep(attempt)

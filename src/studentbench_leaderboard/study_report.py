@@ -9,6 +9,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 import html
 import json
+import math
 from pathlib import Path
 import tomllib
 
@@ -281,6 +282,66 @@ def _extension(study_dir: Path, pointer_key: str = "study_dir", catalog_prefix: 
                                        "serialization_by_variant": summary.get("serialization_by_variant", {})}, catalog_prefix)}
 
 
+def _public_leaderboard(study_dir: Path) -> dict | None:
+    """Read only aggregate fields from a bounded, explicitly declared artifact."""
+    pointer_path = study_dir / "report_leaderboard.json"
+    if not pointer_path.exists():
+        return None
+    pending = {"status": "pending"}
+    try:
+        filename = _load(pointer_path, {}).get("evaluation_file")
+        if not isinstance(filename, str) or not filename:
+            return pending
+        path = (study_dir / filename).resolve()
+        if not path.is_relative_to(study_dir.parent) or not path.is_file():
+            return pending
+        value = _load(path)
+        if not isinstance(value, dict):
+            return pending
+    except (OSError, ValueError, TypeError, AttributeError):
+        return pending
+
+    def scalar(value):
+        return value if isinstance(value, (str, int, bool)) or isinstance(value, float) and math.isfinite(value) else None
+
+    def fit(source):
+        if not isinstance(source, dict):
+            return {}
+        rows = source.get("leaderboard", [])
+        if not isinstance(rows, list):
+            rows = []
+        return {"connected": source.get("connected") is True, "converged": source.get("converged") is True,
+                "models": [m for m in source.get("models", []) if isinstance(m, str)] if isinstance(source.get("models"), list) else [],
+                "leaderboard": [{k: scalar(row.get(k)) for k in ("model", "rank", "score", "n_comparisons", "n_subjects")}
+                                for row in rows if isinstance(row, dict)]}
+
+    coverage = value.get("coverage") if isinstance(value.get("coverage"), dict) else {}
+    intervals = value.get("rank_intervals") if isinstance(value.get("rank_intervals"), dict) else {}
+    rubrics = value.get("per_rubric") if isinstance(value.get("per_rubric"), dict) else {}
+    generation = value.get("generation_coverage") if isinstance(value.get("generation_coverage"), list) else []
+    conditions = value.get("evaluation_conditions") if isinstance(value.get("evaluation_conditions"), dict) else {}
+    bootstrap = value.get("bootstrap") if isinstance(value.get("bootstrap"), dict) else {}
+    judge = conditions.get("judge") if isinstance(conditions.get("judge"), dict) else {}
+    members = judge.get("members") if isinstance(judge.get("members"), list) else []
+    requested = value.get("requested_models") if isinstance(value.get("requested_models"), list) else [row.get("model") for row in generation if isinstance(row, dict)]
+    return {"status": "complete" if value.get("complete") is True else "pending",
+            "requested_models": [model for model in requested if isinstance(model, str)],
+            "deferred_models": [{k: scalar(row.get(k)) for k in ("model", "label", "status")} for row in value.get("deferred_models", []) if isinstance(row, dict)] if isinstance(value.get("deferred_models"), list) else [],
+            "ranking": fit(value.get("ranking")),
+            "per_rubric": {str(k): fit(v) for k, v in rubrics.items()},
+            "rank_intervals": {str(k): {field: scalar(v.get(field)) for field in ("low", "high", "n_valid")}
+                               for k, v in intervals.items() if isinstance(v, dict)},
+            "coverage": {k: scalar(coverage.get(k)) for k in ("scheduled_comparisons", "completed_comparisons", "missing_comparisons", "scheduled_calls", "completed_calls", "missing_calls", "requested_criteria", "scored_criteria", "missing_criteria", "abstained_criteria")},
+            "bootstrap": {k: scalar(bootstrap.get(k)) for k in ("requested", "valid", "method")},
+            "conditions": {**{k: scalar(conditions.get(k)) for k in ("seed", "comparisons_per_student", "include_new_pairs")},
+                           "judge": {**{k: scalar(judge.get(k)) for k in ("adapter", "model", "reasoning_effort", "judge_id", "strategy", "version") if k in judge}, "members": [{k: scalar(m.get(k)) for k in ("name", "model", "reasoning_effort")} for m in members if isinstance(m, dict)]}},
+            "generation_coverage": [{"model": scalar(row.get("model")), "label": scalar(row.get("label")),
+                "reasoning_effort": scalar(row.get("reasoning_effort")), "status": scalar(row.get("status")),
+                "settings": {k: scalar(row.get("settings", {}).get(k)) for k in ("reasoning_effort", "temperature", "top_p", "max_output_tokens", "max_tokens", "max_completion_tokens") if k in row.get("settings", {})} if isinstance(row.get("settings"), dict) else {},
+                **{k: len(row[k]) if isinstance(row.get(k), list) else scalar(row.get(k)) for k in ("selected_subjects", "completed_subjects", "pending_subjects")}}
+                for row in generation if isinstance(row, dict)]}
+
+
 def render_report(study_dir: Path) -> Path:
     """Render available analyses, judge snapshots, uncertainty, density and audit."""
     study_dir = Path(study_dir).resolve()
@@ -381,12 +442,88 @@ def render_report(study_dir: Path) -> Path:
                   "findings": _load(study_dir / "audit/findings.json", [])},
         "sources": sources,
     })
+    public = _public_leaderboard(study_dir)
+    if public is not None:
+        public["baseline_models"] = _public_baselines(study_dir)
+        data["public_leaderboard"] = public
     # Escaping '<' also prevents a saved explanation from closing a script tag.
     serialized = json.dumps(data, ensure_ascii=False, allow_nan=False).replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
     document = TEMPLATE.replace("__STUDY_DATA__", serialized).replace("__STUDY_TITLE__", html.escape(study_dir.name))
+    if public is not None:
+        document = _inject_public_leaderboard(document)
     target = study_dir / "report.html"
     target.write_text(document)
     return target
+
+
+def _public_baselines(study_dir: Path) -> list[str]:
+    analysis = _load(study_dir / "test_analysis.json", {})
+    models = analysis.get("models", []) if isinstance(analysis, dict) else []
+    return [model for model in models if isinstance(model, str)] if isinstance(models, list) else []
+
+
+def _public_validation(study_dir: Path) -> dict:
+    selection = _load(study_dir / "selection.json", {})
+    test = _load(study_dir / "test_analysis.json", {})
+    if not isinstance(selection, dict) or not isinstance(test, dict):
+        return {}
+    variant = selection.get("variant")
+    judge = next((j for j in test.get("judges", []) if isinstance(j, dict) and j.get("variant") == variant), {})
+    metrics = judge.get("metrics", {})
+    if not isinstance(metrics, dict):
+        metrics = {}
+    return {"variant": variant, "n_pairs": test.get("n_pairs"), "n_subjects": test.get("n_subjects"),
+            "metrics": {k: metrics.get(k) for k in ("kendall_tau_b", "spearman", "pair_order_agreement")}}
+
+
+def render_public_report(study_dir: Path) -> Path:
+    """Render only the aggregate first-release section, without validation data."""
+    study_dir = Path(study_dir).resolve()
+    study_dir.mkdir(parents=True, exist_ok=True)
+    public = _public_leaderboard(study_dir) or {"status": "pending"}
+    public["baseline_models"] = _public_baselines(study_dir)
+    validation = _public_validation(study_dir)
+    serialized = json.dumps({"public_leaderboard": public, "validation": validation, "human": {}}, ensure_ascii=False, allow_nan=False)
+    serialized = serialized.replace("<", "\\u003c").replace(">", "\\u003e").replace("&", "\\u0026").replace("\u2028", "\\u2028").replace("\u2029", "\\u2029")
+    style = TEMPLATE.split("<style>", 1)[1].split("</style>", 1)[0]
+    helpers = TEMPLATE.split("const D=", 1)[1].split("\nlet activeCriterion=", 1)[0]
+    # The selector uses the same model names and criterion labels as the report.
+    names = TEMPLATE.split("function modelName(raw){", 1)[1].split("function judgeName(", 1)[0]
+    labels = TEMPLATE.split("const criterionLabel=", 1)[1].split("\n", 1)[0]
+    document = ('<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">'
+                '<title>StudentBench · AI-judged leaderboard</title><style>' + style + '</style></head><body>'
+                '<header><div class="eyebrow">StudentBench / first public leaderboard</div><h1>AI-judged lesson-plan quality leaderboard</h1></header>'
+                '<main>' + PUBLIC_SECTION + PUBLIC_VALIDATION + '</main><script type="application/json" id="study-data">' + serialized + '</script>'
+                '<script>const D=' + helpers + '\nfunction modelName(raw){' + names + '\nconst criterionLabel=' + labels + '\n' + PUBLIC_SCRIPT + PUBLIC_VALIDATION_SCRIPT + '</script></body></html>')
+    target = study_dir / "public-report.html"
+    target.write_text(document)
+    return target
+
+
+def _inject_public_leaderboard(document: str) -> str:
+    document = document.replace('<title>StudentBench · Model ranking validation</title>', '<title>StudentBench · AI-judged leaderboard and validation</title>')
+    document = document.replace('StudentBench / judge validation study</div><h1>Do AI judges recover the human ranking of lesson-plan generator systems?</h1><p>We compare human and AI rankings of systems that generate lesson plans, then test which judge designs and comparison schedules produce a similar leaderboard.</p>', 'StudentBench / first public leaderboard</div><h1>AI-judged lesson-plan quality leaderboard</h1><p>Compare the requested generator systems, then explore the judge-validation studies below.</p>')
+    document = document.replace('<nav aria-label="Report sections">', '<nav aria-label="Report sections"><a href="#public-leaderboard">Public leaderboard</a>')
+    document = document.replace('<section id="overview">', PUBLIC_SECTION + '<section id="overview">')
+    return document.replace("$('print-report').addEventListener", PUBLIC_SCRIPT + "\n$('print-report').addEventListener")
+
+
+PUBLIC_SECTION = r'''<section id="public-leaderboard"><div class="section-head"><h2>First public leaderboard · AI-judged quality</h2><span class="badge" id="public-status">Pending</span></div><p class="lede">This ranking compares lesson-plan generator systems on GRE Quant for 83 held-out student contexts: the original 12 systems and the requested new generators. A system includes its model and generation settings. The AI judge evaluates plan quality; this is not a human grade or a measure of student learning.</p><div id="public-coverage"></div><div class="toolbar"><label class="control">Quality criterion<select id="public-criterion"></select></label></div><div id="public-ranking" class="scroll"></div><p class="caption">Rank 1 is highest estimated quality. Bradley–Terry scores summarize pairwise preferences. Overall rank ranges are 95% student-context bootstrap percentile intervals, conditional on connected, converged fits; they do not establish a unique winner. Missing or abstained judgments are not ties. Criterion-specific fits need not share the overall ordering.</p><div id="public-model-settings"></div><div id="public-deferred"></div></section>'''
+
+PUBLIC_SCRIPT = r'''
+function publicLeaderboard(){
+ const p=D.public_leaderboard;if(!p)return;const status=$('public-status'),select=$('public-criterion');
+ const keys=['overall',...Object.keys(p.per_rubric||{}).sort()];select.innerHTML=keys.map(k=>'<option value="'+esc(k)+'">'+esc(criterionLabel(k))+'</option>').join('');
+ const c=p.coverage||{},cond=p.conditions||{};$('public-coverage').innerHTML='<p class="small">Comparisons completed: '+integer(c.completed_comparisons)+' / '+integer(c.scheduled_comparisons)+'; missing: '+integer(c.missing_comparisons)+'. Usable rubric answers: '+integer(c.scored_criteria)+' / '+integer(c.requested_criteria)+'; missing: '+integer(c.missing_criteria)+'; abstained: '+integer(c.abstained_criteria)+'. Bootstrap fits: '+integer(p.bootstrap?.valid)+' / '+integer(p.bootstrap?.requested)+'. Comparisons per student: '+integer(cond.comparisons_per_student)+'; new-to-new comparisons: '+esc(cond.include_new_pairs==null?'not recorded':cond.include_new_pairs?'included':'excluded')+'. Judge: '+esc(Object.entries(cond.judge||{}).filter(([k])=>k!=='members').map(([k,v])=>k.replaceAll('_',' ')+': '+v).concat((cond.judge?.members||[]).map(m=>[m.model,m.reasoning_effort].filter(Boolean).join(' · '))).join('; ')||'not recorded')+'.</p>';
+ function draw(){const key=select.value,fit=key==='overall'?p.ranking:p.per_rubric?.[key],rows=fitRows(fit),baseline=p.baseline_models||[],newModels=p.requested_models||[],generationModels=(p.generation_coverage||[]).map(x=>x.model),roster=[...baseline,...newModels],expected=new Set(roster),models=new Set(rows.map(r=>r.model)),fitModels=Array.isArray(fit?.models)?fit.models:[],sameRoster=ids=>ids.length===roster.length&&new Set(ids).size===roster.length&&ids.every(id=>typeof id==='string'&&expected.has(id));const ready=p.status==='complete'&&baseline.length===12&&newModels.length>0&&new Set(newModels).size===newModels.length&&generationModels.length===newModels.length&&new Set(generationModels).size===newModels.length&&generationModels.every(id=>newModels.includes(id))&&expected.size===roster.length&&sameRoster(fitModels)&&sameRoster(rows.map(r=>r.model))&&fit?.connected===true&&fit?.converged===true&&rows.every(r=>valid(r.rank));status.textContent=ready?'Complete':'Pending / unavailable';status.classList.toggle('pending',!ready);if(!ready){$('public-ranking').innerHTML=empty('A complete, connected requested-system '+criterionLabel(key)+' ranking is not available yet. No ranks are inferred from the earlier 12-system study.');const base=(p.baseline_models||[]).map(model=>[esc(modelName(model)),'—','Original system · pending global ranking']);const newer=(p.generation_coverage||[]).map(x=>[esc(x.label||modelName(x.model)),'—',esc(x.status||((x.pending_subjects||0)>0?'Generation pending':'Awaiting evaluation'))]);$('public-ranking').innerHTML+=table(['Generator system','Rank','Status'],[...base,...newer]);return}$('public-ranking').innerHTML=table(['Generator system','Rank','95% student bootstrap rank range','BT score','Comparisons','Students'],rows.map(r=>['<strong>'+esc(modelName(r.model))+'</strong>',num(r.rank,0),key==='overall'?interval(p.rank_intervals?.[r.model],0):'—',num(r.score),integer(r.n_comparisons),integer(r.n_subjects)]));}
+ select.addEventListener('change',draw);draw();const deferred=p.deferred_models||[];if(deferred.length)$('public-deferred').innerHTML='<p class="small">Deferred from this release: '+deferred.map(x=>esc(x.label||modelName(x.model))).join(', ')+'.</p>';const configs=p.generation_coverage||[];if(configs.length)$('public-model-settings').innerHTML='<details><summary>New generator models and settings</summary>'+table(['Generator system','Generation settings','Completed / selected students'],configs.map(x=>[esc(x.label||modelName(x.model)),esc([...(x.reasoning_effort!=null?['reasoning effort: '+x.reasoning_effort]:[]),...Object.entries(x.settings||{}).map(([k,v])=>k.replaceAll('_',' ')+': '+v)].join('; ')||'Not recorded'),integer(x.completed_subjects)+' / '+integer(x.selected_subjects)]))+'</details>';
+}
+publicLeaderboard();
+'''
+
+
+PUBLIC_VALIDATION = r'''<section id="public-validation"><h2>Judge validation and methods</h2><div class="card"><p>The judge was selected on validation students before examining the held-out test. The held-out comparison below concerns the original 12 generator systems; it is evidence about the judge, not a human grade for new generators.</p><div id="public-validation-stats"></div><p>Pairwise rubric preferences are combined into a Bradley–Terry quality ranking. Ties count as half wins; missing and abstained judgments do not. Student contexts are the resampling unit. Evaluation schedules and model generation settings affect the estimates.</p><p>Density analyses are sensitive to opponent schedules, student weights and the fixed Bradley–Terry ridge penalty; stronger relative shrinkage at lower density complicates comparisons. Validation agreement does not establish a certain winner or measure student learning gains.</p></div></section>'''
+PUBLIC_VALIDATION_SCRIPT = r'''const v=D.validation||{},m=v.metrics||{};document.getElementById('public-validation-stats').innerHTML='<p>Frozen selected judge: '+esc(v.variant||'pending')+'. Held-out test: '+integer(v.n_pairs)+' human-reviewed pairs across '+integer(v.n_subjects)+' students. Against the human reference, Kendall τ-b: '+num(m.kendall_tau_b)+', Spearman ρ: '+num(m.spearman)+', model-order agreement: '+pct(m.pair_order_agreement)+'.</p>';'''
 
 
 TEMPLATE = r'''<!doctype html>
@@ -653,7 +790,7 @@ function ranking(){
  const bi=boot?'Valid paired bootstrap draws: '+integer(boot.valid_bootstrap_fits?.paired)+' / '+integer(boot.n_bootstrap)+'. ':'';
  $('ranking-warning').innerHTML=(comparingAI?'<p class="small">Comparing two AI rank positions. Human-alignment metrics and uncertainty are not recalculated for this browser comparison.</p>':'')+(r?.complete===false?'<div class="notice">Partial round: '+integer(r.n_completed_calls)+' of '+integer(r.n_expected_calls)+' calls completed. Missing judgments can change the comparison schedule.</div>':'')+(!comparingAI&&j?.bootstrap_cohort_warning?'<div class="notice">'+esc(j.bootstrap_cohort_warning)+'</div>':'')+(warning?'<div class="notice">'+esc(warning)+'</div>':bi?'<p class="small">'+esc(bi+boot.interval_warning)+'</p>':'');
  const hs=fitRows(h),as=fitRows(a),ai=new Map(as.map(x=>[x.model,x]));
- $('leaderboard-table').innerHTML=hs.length?table(['Lesson-plan generator system','Human / reference rank','AI rank','Rank difference','Reference BT','AI BT','Reference pairs','AI pairs'],hs.map(x=>{const y=ai.get(x.model),delta=valid(y?.rank)&&valid(x.rank)?y.rank-x.rank:null,hr=boot?.rank_intervals?.human?.[x.model]||x.rank_interval,ar=boot?.rank_intervals?.judge?.[x.model]||y?.rank_interval;return ['<strong>'+esc(modelName(x.model))+'</strong>',num(x.rank,1)+(hr?'<span class="sub">'+interval(hr,1)+'</span>':''),num(y?.rank,1)+(ar?'<span class="sub">'+interval(ar,1)+'</span>':''),valid(delta)?'<span class="'+(delta<0?'positive':delta>0?'negative':'')+'">'+(delta>0?'+':'')+num(delta,1)+'</span>':'—',num(x.score),num(y?.score),integer(x.n_comparisons),integer(y?.n_comparisons)];})):empty('No completed ranking fit is available.');
+ $('leaderboard-table').innerHTML=hs.length?table(['Lesson-plan generator system','Human / reference rank','AI rank','Rank difference','Reference BT','AI BT','Reference pairs','AI pairs'],hs.map(x=>{const y=ai.get(x.model),delta=valid(y?.rank)&&valid(x.rank)?y.rank-x.rank:null,hr=boot?.rank_intervals?.human?.[x.model]||x.rank_interval,ar=boot?.rank_intervals?.judge?.[x.model]||y?.rank_interval;return ['<strong>'+esc(x.label||modelName(x.model))+'</strong>',num(x.rank,1)+(hr?'<span class="sub">'+interval(hr,1)+'</span>':''),num(y?.rank,1)+(ar?'<span class="sub">'+interval(ar,1)+'</span>':''),valid(delta)?'<span class="'+(delta<0?'positive':delta>0?'negative':'')+'">'+(delta>0?'+':'')+num(delta,1)+'</span>':'—',num(x.score),num(y?.score),integer(x.n_comparisons),integer(y?.n_comparisons)];})):empty('No completed ranking fit is available.');
  $('rank-chart').innerHTML=rankChart(hs,as,referenceName,judgeName(j)||'AI judge');
 }
 function rankChart(h,a,referenceName,judgeName){if(!h.length||!a.length)return '';const n=h.length,w=1050,height=n*25+65,left=290,right=995,y=i=>45+i*25,x=rank=>left+(rank-1)/(Math.max(n-1,1))*(right-left);const am=new Map(a.map(z=>[z.model,z]));let s='<svg role="img" aria-label="Reference and AI rank positions by lesson-plan generator system" viewBox="0 0 '+w+' '+height+'">';for(let i=1;i<=n;i++)s+='<line class="gridline" x1="'+x(i)+'" y1="20" x2="'+x(i)+'" y2="'+(height-20)+'"/><text x="'+x(i)+'" y="13" text-anchor="middle">'+i+'</text>';h.forEach((row,i)=>{const other=am.get(row.model);s+='<text x="275" y="'+(y(i)+4)+'" text-anchor="end">'+esc(modelName(row.model))+'</text>';if(valid(row.rank))s+='<circle cx="'+x(row.rank)+'" cy="'+y(i)+'" r="4.5" fill="#087f83"><title>'+esc(referenceName)+': rank '+row.rank+'</title></circle>';if(valid(row.rank)&&valid(other?.rank))s+='<line x1="'+x(row.rank)+'" y1="'+y(i)+'" x2="'+x(other.rank)+'" y2="'+y(i)+'" stroke="#aebbc4" stroke-width="2"/>';if(valid(other?.rank))s+='<circle cx="'+x(other.rank)+'" cy="'+y(i)+'" r="4" fill="#5571c4"><title>'+esc(judgeName)+': rank '+other.rank+'</title></circle>';});return s+'</svg>';}

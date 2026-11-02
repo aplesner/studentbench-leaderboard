@@ -36,6 +36,15 @@ class LLMRequestError(RuntimeError):
         self.transient = transient
 
 
+class LLMResponseError(ValueError):
+    """A provider response was received but cannot be used as a complete answer."""
+
+    def __init__(self, message: str, *, response_metadata: dict, raw_response: str | None):
+        super().__init__(message)
+        self.response_metadata = response_metadata
+        self.raw_response = raw_response
+
+
 class LLMClient:
     def __init__(self, profile: str | None = None, config_path: str | None = None):
         profiles, default_profile = load_profiles(config_path)
@@ -152,12 +161,24 @@ class LLMClient:
                 "APIConnectionError", "APITimeoutError", "Timeout", "TimeoutError", "RateLimitError"}
             raise LLMRequestError(f"{name}: {message}", original_type=name,
                                   status_code=status, transient=transient) from None
-        raw = response.choices[0].message.content
-        if not isinstance(raw, str):
-            raise ValueError("Model returned no text (possibly a refusal)")
         usage = getattr(response, "usage", None)
-        return raw, {"usage": usage.model_dump() if usage else {}, "response_model": response.model,
-                     "response_id": response.id, "routing": config}
+        metadata = {"usage": usage.model_dump() if usage else {}, "response_model": response.model,
+                    "response_id": response.id, "routing": config}
+        choices = getattr(response, "choices", None) or []
+        choice = choices[0] if choices else None
+        message = getattr(choice, "message", None)
+        raw = getattr(message, "content", None)
+        finish = getattr(choice, "finish_reason", None)
+        refusal = getattr(message, "refusal", None)
+        if not isinstance(raw, str) or not raw.strip() or finish in {"length", "content_filter"} or refusal:
+            # Expose only the selected response fields; never attach provider headers.
+            safe_raw = raw.replace(key, "[REDACTED]").replace(route["_api_base"], "[API BASE]") if isinstance(raw, str) else None
+            for field in ("response_model", "response_id"):
+                if isinstance(metadata[field], str):
+                    metadata[field] = metadata[field].replace(key, "[REDACTED]").replace(route["_api_base"], "[API BASE]")
+            metadata["finish_reason"] = finish if finish in {"stop", "length", "content_filter", "tool_calls", "function_call"} else None
+            raise LLMResponseError("Model returned an incomplete or unusable response", response_metadata=metadata, raw_response=safe_raw)
+        return raw, metadata
 
     def doctor(self, model: str | None = None) -> dict:
         model = model or "gpt-4o-mini"

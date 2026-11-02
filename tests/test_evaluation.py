@@ -148,6 +148,11 @@ model = "openai/test"
         self.assertEqual(protected.read_text(), 'protected')
         with self.assertRaisesRegex(ValueError, 'generation artifacts'):
             run_evaluation(self.benchmark, self.path, self.client, output=self.path / 'generations', bootstrap=0)
+        with self.assertRaisesRegex(ValueError, 'generation artifacts'):
+            run_evaluation(self.benchmark, self.path, self.client, output=self.path / 'generation_attempts', bootstrap=0)
+        with self.assertRaisesRegex(ValueError, 'generation artifacts'):
+            run_evaluation(self.benchmark, self.path, self.client, output=self.path / 'safe-out',
+                           cache_dir=self.path / 'generation_attempts', bootstrap=0)
 
     def test_transient_retry_respects_attempt_budget(self):
         class Temporary(Exception):
@@ -204,6 +209,42 @@ model = "openai/test"
         self.assertFalse(result['complete'])
         self.assertEqual(result['ranking']['n_comparisons'], 0)
         self.assertEqual(result['coverage']['missing_calls'], 2)
+
+    def test_invalid_responses_and_rerun_failures_are_auditable(self):
+        self.client.complete = lambda *a, **k: ('invalid JSON', {'usage': {'total_tokens': 42}})
+        first = self.run_eval(max_new_calls=1)
+        second = self.run_eval(max_new_calls=1)
+        self.assertFalse(first['complete'])
+        self.assertEqual(second['coverage']['missing_calls'], 2)
+        self.assertEqual(first['coverage']['new_calls_attempted'], 1)
+        attempts = sorted((self.path / 'out' / 'attempts').glob('*.json'))
+        failures = sorted((self.path / 'out' / 'failures').glob('*.json'))
+        self.assertEqual(len(attempts), 2)
+        self.assertEqual(len(failures), 2)
+        self.assertNotEqual(json.loads(attempts[0].read_text())['invocation_id'],
+                            json.loads(attempts[1].read_text())['invocation_id'])
+        for failure_path in failures:
+            failure = json.loads(failure_path.read_text())
+            record = json.loads((self.path / 'out' / failure['attempt_file']).read_text())
+            self.assertEqual(record['raw_response'], 'invalid JSON')
+            self.assertEqual(record['metadata']['usage']['total_tokens'], 42)
+            self.assertEqual(record['request_id'], failure['request_id'])
+            self.assertIn('messages', record['request'])
+            self.assertIn('received_at', record)
+
+    def test_exception_with_response_metadata_is_audited(self):
+        class ResponseError(Exception):
+            raw_response = None
+            response_metadata = {'usage': {'total_tokens': 17}}
+        def fail(*args, **kwargs):
+            raise ResponseError('refused')
+        self.client.complete = fail
+        result = self.run_eval(max_new_calls=1)
+        self.assertFalse(result['complete'])
+        failure = json.loads(next((self.path / 'out' / 'failures').glob('*.json')).read_text())
+        record = json.loads((self.path / 'out' / failure['attempt_file']).read_text())
+        self.assertIsNone(record['raw_response'])
+        self.assertEqual(record['metadata']['usage']['total_tokens'], 17)
 
 if __name__ == '__main__':
     unittest.main()

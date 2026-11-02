@@ -6,7 +6,7 @@ from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
-from studentbench_leaderboard.llm_client import LLMClient, LLMRequestError
+from studentbench_leaderboard.llm_client import LLMClient, LLMRequestError, LLMResponseError
 
 
 class ClientTests(unittest.TestCase):
@@ -116,6 +116,19 @@ class ClientTests(unittest.TestCase):
         self.assertEqual(final.call_args.kwargs['api_base'], 'https://private.example/v1')
         self.assertEqual(final.call_args.kwargs['custom_llm_provider'], 'litellm_proxy')
         self.assertEqual(final.call_args.kwargs['model'], 'alias')
+
+    def test_unusable_provider_response_retains_usage_and_finish(self):
+        usage = SimpleNamespace(model_dump=lambda: {'prompt_tokens': 10, 'completion_tokens': 20})
+        response = SimpleNamespace(choices=[SimpleNamespace(message=SimpleNamespace(content=None, refusal=None), finish_reason='length')],
+                                   usage=usage, model='gpt-4o', id='response-id')
+        with patch.dict(os.environ, {'OPENAI_API_KEY': 'key'}, clear=True), \
+                patch('litellm.completion', return_value=response):
+            with self.assertRaises(LLMResponseError) as caught:
+                LLMClient().complete('gpt-4o', [], {})
+        self.assertIsNone(caught.exception.raw_response)
+        self.assertEqual(caught.exception.response_metadata['usage']['completion_tokens'], 20)
+        self.assertEqual(caught.exception.response_metadata['finish_reason'], 'length')
+        self.assertEqual(caught.exception.response_metadata['response_id'], 'response-id')
 
     def test_provider_retry_metadata_and_redaction(self):
         class ProviderError(Exception):

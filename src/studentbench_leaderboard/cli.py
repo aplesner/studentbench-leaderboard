@@ -100,6 +100,17 @@ def parser() -> argparse.ArgumentParser:
     evaluate_command.add_argument("--seed", type=int, default=20261102)
     evaluate_command.add_argument("--bootstrap", type=int, default=500,
                                   help="Number of student-cluster bootstrap resamples")
+    multi = commands.add_parser("evaluate-many", help="Fit one joint leaderboard for several generator runs")
+    execution_arguments(multi)
+    multi.add_argument("generation_dirs", type=Path, nargs="+")
+    multi.add_argument("--output", type=Path, required=True)
+    multi.add_argument("--cache-dir", type=Path,
+                       default=Path(os.environ.get("STUDENTBENCH_JUDGE_CACHE", "results/judge-cache")))
+    multi.add_argument("--include-new-pairs", action=argparse.BooleanOptionalAction, default=True,
+                       help="Include comparisons between the new generator systems")
+    multi.add_argument("--comparisons-per-student", type=int)
+    multi.add_argument("--seed", type=int, default=20261102)
+    multi.add_argument("--bootstrap", type=int, default=500)
     doctor = commands.add_parser("doctor", help="Check connection configuration without inference")
     connection_arguments(doctor)
     doctor.add_argument("--model", help="Check the resolved route for this model")
@@ -139,7 +150,7 @@ def parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> None:
-    if args.command in {"benchmark", "generate", "evaluate", "doctor"}:
+    if args.command in {"benchmark", "generate", "evaluate", "evaluate-many", "doctor"}:
         run_workflow(args)
         return
     if args.command == "judges":
@@ -194,11 +205,11 @@ def run_workflow(args: argparse.Namespace) -> None:
         from .benchmark import Benchmark
 
         benchmark = Benchmark.load(args.benchmark)
-        destination = (args.output if args.command == "generate" else
+        destination = (args.output if args.command in {"generate", "evaluate-many"} else
                        args.output or args.generation_dir / "evaluation")
         if destination.resolve().is_relative_to(args.ssot.resolve()):
             raise ValueError("Output must be outside the read-only SSOT directory")
-        if args.command == "evaluate" and args.cache_dir.resolve().is_relative_to(args.ssot.resolve()):
+        if args.command in {"evaluate", "evaluate-many"} and args.cache_dir.resolve().is_relative_to(args.ssot.resolve()):
             raise ValueError("Judge cache must be outside the read-only SSOT directory")
         client = llm_client(args)
         settings = {"dry_run": args.dry_run, "max_new_calls": args.max_new_calls,
@@ -208,6 +219,13 @@ def run_workflow(args: argparse.Namespace) -> None:
 
             result = run_generation(benchmark, args.output, args.model, client,
                                     reasoning_effort=args.reasoning_effort, limit=args.limit, **settings)
+        elif args.command == "evaluate-many":
+            from .evaluation import run_multi_evaluation
+
+            result = run_multi_evaluation(benchmark, args.generation_dirs, client, output=args.output,
+                                          cache_dir=args.cache_dir, include_new_pairs=args.include_new_pairs,
+                                          comparisons_per_student=args.comparisons_per_student,
+                                          seed=args.seed, bootstrap=args.bootstrap, **settings)
         else:
             from .evaluation import run_evaluation
 

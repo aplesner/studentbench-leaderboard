@@ -8,9 +8,12 @@ import json
 import os
 import random
 import re
+import time
+import uuid
 from collections import Counter, defaultdict
 from concurrent.futures import ThreadPoolExecutor
 from contextlib import ExitStack
+from datetime import datetime, timezone
 from pathlib import Path
 
 import numpy as np
@@ -29,6 +32,19 @@ def _write(path, value):
     temporary = path.with_name(path.name + '.tmp')
     temporary.write_text(json.dumps(value, ensure_ascii=False, allow_nan=False, indent=2), encoding='utf-8')
     os.replace(temporary, path)
+
+
+def _write_new(path, value):
+    """Publish a ledger entry atomically, without replacing a prior entry."""
+    path.parent.mkdir(parents=True, exist_ok=True)
+    temporary = path.with_name(path.name + f'.{uuid.uuid4().hex}.tmp')
+    try:
+        with temporary.open('x', encoding='utf-8') as stream:
+            json.dump(value, stream, ensure_ascii=False, allow_nan=False, indent=2)
+            stream.write('\n')
+        os.link(temporary, path, follow_symlinks=False)
+    finally:
+        temporary.unlink(missing_ok=True)
 
 
 def _redact(error):
@@ -167,12 +183,39 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
                    dry_run=False, max_new_calls=1000, workers=1, timeout=180,
                    comparisons_per_student=None, seed=20261102, bootstrap=500, cache_dir: Path | None = None):
     """Freeze and execute comparisons; each validated provider call is independently resumable."""
+    return _run_evaluation(benchmark, [generation_dir], client, output=output, dry_run=dry_run,
+                           max_new_calls=max_new_calls, workers=workers, timeout=timeout,
+                           comparisons_per_student=comparisons_per_student, seed=seed,
+                           bootstrap=bootstrap, cache_dir=cache_dir, multi=False, include_new_pairs=False)
+
+
+def run_multi_evaluation(benchmark, generation_dirs: list[Path], client, *, output: Path,
+                         include_new_pairs=True, cache_dir: Path | None = None, dry_run=False,
+                         max_new_calls=1000, workers=1, timeout=180, seed=20261102, bootstrap=500,
+                         comparisons_per_student=None):
+    """Fit one leaderboard from all validated candidates and shared baseline comparisons."""
+    if not generation_dirs:
+        raise ValueError('At least one generation directory is required')
+    if type(include_new_pairs) is not bool:
+        raise ValueError('include_new_pairs must be a boolean')
+    return _run_evaluation(benchmark, generation_dirs, client, output=output, dry_run=dry_run,
+                           max_new_calls=max_new_calls, workers=workers, timeout=timeout,
+                           comparisons_per_student=comparisons_per_student, seed=seed,
+                           bootstrap=bootstrap, cache_dir=cache_dir, multi=True,
+                           include_new_pairs=include_new_pairs)
+
+
+def _run_evaluation(benchmark, generation_dirs, client, *, output, dry_run, max_new_calls, workers,
+                    timeout, comparisons_per_student, seed, bootstrap, cache_dir, multi, include_new_pairs):
     if (type(max_new_calls) is not int or max_new_calls < 0 or type(workers) is not int or workers < 1
             or type(bootstrap) is not int or bootstrap < 0 or timeout <= 0
             or (comparisons_per_student is not None and
                 (type(comparisons_per_student) is not int or comparisons_per_student < 1))):
         raise ValueError('Invalid evaluation budget, workers, timeout, bootstrap or comparison limit')
-    generation_dir = Path(generation_dir)
+    generation_dirs = [Path(path) for path in generation_dirs]
+    if len({path.resolve() for path in generation_dirs}) != len(generation_dirs):
+        raise ValueError('Duplicate generation directories')
+    generation_dir = generation_dirs[0]
     output = Path(output) if output is not None else generation_dir / 'evaluation'
     # Never write into the SSOT even if it is supplied as an output directory.
     ssot = Path('studentbench_data_ssot').resolve()
@@ -184,15 +227,16 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
         raise ValueError('Evaluation output must not contain symlinks')
     target = output.resolve()
     bundle_path = getattr(benchmark, 'path', None)
-    protected = [generation_dir.resolve()] + ([Path(bundle_path).resolve()] if bundle_path else [])
+    protected = [path.resolve() for path in generation_dirs] + ([Path(bundle_path).resolve()] if bundle_path else [])
     if any(path == target or path.is_relative_to(target) for path in protected):
         raise ValueError('Evaluation output cannot replace the generation or benchmark directory')
     if bundle_path and target.is_relative_to(Path(bundle_path).resolve()):
         raise ValueError('Evaluation output cannot be inside the benchmark bundle')
-    for name in ('calls', 'generations', 'generation_errors', 'generation_manifest.json', '.generation.lock'):
-        artifact = (generation_dir / name).resolve()
-        if target == artifact or target.is_relative_to(artifact):
-            raise ValueError('Evaluation output cannot overlap generation artifacts')
+    for directory in generation_dirs:
+        for name in ('calls', 'generations', 'generation_errors', 'generation_attempts', 'generation_manifest.json', '.generation.lock'):
+            artifact = (directory / name).resolve()
+            if target == artifact or target.is_relative_to(artifact):
+                raise ValueError('Evaluation output cannot overlap generation artifacts')
     if target.is_relative_to(ssot):
         raise ValueError('Evaluation output cannot be inside the SSOT')
     cache = Path(cache_dir) if cache_dir is not None else None
@@ -208,20 +252,48 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
         if bundle_path and (cache_target.is_relative_to(Path(bundle_path).resolve()) or
                             Path(bundle_path).resolve().is_relative_to(cache_target)):
             raise ValueError('Shared cache overlaps benchmark bundle')
-        gen_target = generation_dir.resolve()
-        if gen_target == cache_target or gen_target.is_relative_to(cache_target):
-            raise ValueError('Shared cache overlaps generation output')
-        for name in ('calls', 'generations', 'generation_errors', 'generation_manifest.json', '.generation.lock'):
-            artifact = (generation_dir / name).resolve()
-            if cache_target == artifact or cache_target.is_relative_to(artifact):
-                raise ValueError('Shared cache overlaps generation artifacts')
-    generation_status = generation_coverage(generation_dir, benchmark)
-    if generation_status['pending_subjects']:
+        for directory in generation_dirs:
+            gen_target = directory.resolve()
+            if gen_target == cache_target or gen_target.is_relative_to(cache_target):
+                raise ValueError('Shared cache overlaps generation output')
+            for name in ('calls', 'generations', 'generation_errors', 'generation_attempts', 'generation_manifest.json', '.generation.lock'):
+                artifact = (directory / name).resolve()
+                if cache_target == artifact or cache_target.is_relative_to(artifact):
+                    raise ValueError('Shared cache overlaps generation artifacts')
+    statuses = [generation_coverage(directory, benchmark) for directory in generation_dirs]
+    if multi:
+        manifests = []
+        for directory in generation_dirs:
+            path = directory / 'generation_manifest.json'
+            manifests.append(json.loads(path.read_text()) if path.exists() else None)
+        present = [manifest for manifest in manifests if manifest is not None]
+        if len({tuple(manifest['selected_subjects']) for manifest in present}) > 1:
+            raise ValueError('Generation subject coverage mismatch')
+        models_seen, configs_seen = set(), set()
+        baseline_models = {plan['ai_model_preset_id'] for plan in benchmark.plans.values()}
+        for manifest in present:
+            model, configuration = manifest['model'], digest(manifest['configuration'])
+            if model in models_seen or model in baseline_models or configuration in configs_seen:
+                raise ValueError('Duplicate candidate author or configuration ID')
+            models_seen.add(model)
+            configs_seen.add(configuration)
+        generation_status = [{'directory': str(directory), **status,
+                              'manifest_present': manifest is not None,
+                              'model': manifest['model'] if manifest else None,
+                              'reasoning_effort': manifest['configuration'].get('reasoning_effort') if manifest else None,
+                              'settings': manifest['settings'] if manifest else None}
+                             for directory, status, manifest in zip(generation_dirs, statuses, manifests)]
+        incomplete = any(manifest is None or not status['selected_subjects'] or status['pending_subjects']
+                         for status, manifest in zip(statuses, manifests))
+    else:
+        generation_status = statuses[0]
+        incomplete = bool(generation_status['pending_subjects'])
+    if incomplete:
         return {'complete': False, 'dry_run': bool(dry_run), 'status': 'generation_incomplete',
                 'generation_coverage': generation_status,
                 'coverage': {'scheduled_comparisons': 0, 'scheduled_calls': 0},
                 'message': 'Complete generation for the selected cohort before starting evaluation.'}
-    generated = load_generation(generation_dir, benchmark)
+    generated = [plan for directory in generation_dirs for plan in load_generation(directory, benchmark)]
     if not generated:
         raise ValueError('No completed candidate plans are available')
     plans = dict(benchmark.plans)
@@ -248,6 +320,19 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
                 if rng.getrandbits(1):
                     ids.reverse()
                 schedule.append({'subject': subject, 'plan_ids': ids})
+    if multi and include_new_pairs:
+        by_subject = defaultdict(list)
+        for candidate in generated:
+            for subject in candidate['review_subject_ids']:
+                by_subject[subject].append(candidate)
+        for subject, candidates in sorted(by_subject.items()):
+            candidates.sort(key=lambda plan: plan['plan_id'])
+            for index, first in enumerate(candidates):
+                for second in candidates[index + 1:]:
+                    ids = [first['plan_id'], second['plan_id']]
+                    if int(digest([seed, subject, sorted(ids)]), 16) % 2:
+                        ids.reverse()
+                    schedule.append({'subject': subject, 'plan_ids': ids})
     if not schedule:
         raise ValueError('No candidate plans have an available baseline for the same student')
     imported_rows, rejected = [], []
@@ -275,6 +360,9 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
     header = {'version': 1, 'benchmark': benchmark.fingerprint, 'judge': judge.configuration(),
               'routes': routes, 'seed': seed, 'comparisons_per_student': comparisons_per_student,
               'schedule': schedule}
+    if multi:
+        header.update(version=2, include_new_pairs=include_new_pairs,
+                      generation_models=sorted(manifest['model'] for manifest in manifests))
     tasks = []
     for entry in schedule:
         ctx = benchmark.contexts[entry['subject']]
@@ -300,6 +388,15 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
                    'coverage': {'scheduled_comparisons': len(tasks), 'scheduled_calls': total_calls},
                    'baseline_import': {'imported': imported, 'rejected': rejected},
                    'estimated_cost_usd': None, 'cost_note': 'Cost is unknown until provider usage is available.'}
+    if multi:
+        base_result['evaluation_conditions'] = {'benchmark_sha256': benchmark.fingerprint,
+            'judge': judge.configuration(), 'routes': routes, 'seed': seed,
+            'comparisons_per_student': comparisons_per_student, 'include_new_pairs': include_new_pairs}
+        new_ids = {plan['plan_id'] for plan in generated}
+        pair_types = Counter(sum(plan_id in new_ids for plan_id in entry['plan_ids']) for entry in schedule)
+        base_result['planned_pairs'] = {'new_baseline': pair_types[1], 'new_new': pair_types[2],
+                                        'baseline_rejudged': pair_types[0], 'baseline_imported': imported,
+                                        'total': len(schedule) + imported}
     if dry_run:
         schedule_path = output / 'schedule.json'
         if schedule_path.exists() and json.loads(schedule_path.read_text()) != header:
@@ -359,12 +456,21 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
         if len({call['id'] for _, calls in tasks for call in calls}) != total_calls:
             raise ValueError('Evaluation contains duplicate call identities')
         selected = pending[:max_new_calls]
+        invocation_id = uuid.uuid4().hex
         def perform(item):
             call, attempt = item
+            start = time.monotonic()
+            attempt_path = output / 'attempts' / (call['id'] + f'-{invocation_id}-{attempt}.json')
+            def save_response(raw, metadata):
+                _write_new(attempt_path, {'request_id': call['id'], 'request': call['request'],
+                    'raw_response': raw, 'metadata': metadata, 'duration_seconds': time.monotonic() - start,
+                    'received_at': datetime.now(timezone.utc).isoformat(),
+                    'invocation_id': invocation_id, 'attempt': attempt})
             try:
                 member, ct = call['member'], call['task']
                 raw, metadata = client.complete(member.model, ct.messages(), ct.schema(),
                                                 reasoning_effort=member.reasoning_effort, timeout=timeout)
+                save_response(raw, metadata)
                 if metadata.get('routing', call['request']['route']) != call['request']['route']:
                     raise ValueError('Provider response route differs from the requested route')
                 ratings = parse_judge_response(raw, ct)
@@ -380,8 +486,14 @@ def run_evaluation(benchmark, generation_dir: Path, client, *, output: Path | No
                 _write(output / 'calls' / (call['id'] + '.json'), record)
                 return call, record, False
             except Exception as exc:
-                _write(output / 'failures' / (call['id'] + f'-{attempt}.json'),
-                       {'request_id': call['id'], 'attempt': attempt, **_redact(exc)})
+                # Some clients report a received response through an exception, for
+                # example a refusal with null content and billable usage.
+                if not attempt_path.exists() and hasattr(exc, 'response_metadata') and hasattr(exc, 'raw_response'):
+                    save_response(exc.raw_response, exc.response_metadata)
+                _write_new(output / 'failures' / (call['id'] + f'-{invocation_id}-{attempt}.json'),
+                       {'request_id': call['id'], 'invocation_id': invocation_id, 'attempt': attempt,
+                        'attempt_file': str(attempt_path.relative_to(output)) if attempt_path.exists() else None,
+                        **_redact(exc)})
                 transient = (getattr(exc, 'transient', False) or getattr(exc, 'status_code', None) in (408, 429, 500, 502, 503, 504) or
                              type(exc).__name__ in ('APIConnectionError', 'APITimeoutError', 'Timeout', 'TimeoutError', 'RateLimitError'))
                 return call, None, transient
