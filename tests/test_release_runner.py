@@ -1,4 +1,5 @@
 import importlib.util
+import io
 import json
 import subprocess
 import sys
@@ -7,6 +8,8 @@ import unittest
 from decimal import Decimal
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor
+from contextlib import redirect_stdout
+from unittest.mock import patch
 
 MODULE = Path(__file__).resolve().parents[1] / 'experiments/public-release/run.py'
 spec = importlib.util.spec_from_file_location('release_runner', MODULE)
@@ -117,12 +120,102 @@ except m.BudgetExceeded: sys.exit(2)
             self.assertEqual(ledger.summary()['estimated_committed_usd'], '0.03')
             self.assertEqual(ledger.summary()['unfinished'], 0)
 
+    def test_per_model_generation_settings(self):
+        protocol = {'generation_settings':{'max_tokens':32768, 'temperature':0}}
+        self.assertEqual(release.generation_settings(protocol, {'generation_settings':{'max_tokens':65536}}),
+                         {'max_tokens':65536, 'temperature':0})
+        self.assertEqual(release.generation_settings(protocol, {})['max_tokens'], 32768)
+        with self.assertRaisesRegex(ValueError, 'Generation settings'):
+            release.generation_settings(protocol, {'generation_settings':'invalid'})
+
     def test_worker_count_bounds(self):
         import argparse
         self.assertEqual(release.worker_count('64'), 64)
         for invalid in ('65', '0', 'bad'):
             with self.subTest(value=invalid), self.assertRaises(argparse.ArgumentTypeError):
                 release.worker_count(invalid)
+
+    def test_fresh_ledger_initialization_and_unknown_history(self):
+        protocol = {'models':[{'id':'a', 'model':'provider/model'}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            ledger = release.Ledger(root / 'spend.jsonl')
+            release.seed_ledger(ledger, None, protocol, {}, 'catalog-hash', run_dir=root)
+            release.seed_ledger(ledger, None, protocol, {}, 'catalog-hash', run_dir=root)
+            self.assertEqual(ledger.summary()['attempts'], 0)
+            self.assertEqual(len(ledger._read()), 1)
+            self.assertEqual(ledger._read()[0]['catalog_sha256'], 'catalog-hash')
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            historical = root / 'generations' / 'a' / 'generation_errors'
+            historical.mkdir(parents=True)
+            (historical / 'failed.json').write_text('{}')
+            ledger = release.Ledger(root / 'spend.jsonl')
+            with self.assertRaisesRegex(ValueError, 'Historical run artifacts'):
+                release.seed_ledger(ledger, None, protocol, {}, 'catalog-hash', run_dir=root)
+            self.assertFalse(ledger.path.exists())
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'a-smoke.json').write_text('{}')
+            ledger = release.Ledger(root / 'spend.jsonl')
+            with self.assertRaises(ValueError):
+                release.seed_ledger(ledger, None, protocol, {}, 'catalog-hash', run_dir=root)
+            self.assertFalse(ledger.path.exists())
+
+    def test_legacy_seed_refuses_extra_artifacts_and_accepts_original_only(self):
+        protocol = {'models':[{'id':'a', 'model':'provider/model'}]}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root / 'a-smoke.json').write_text(json.dumps({'calls_started':1}))
+            folder = root / 'generations' / 'a'
+            (folder / 'generation_errors').mkdir(parents=True)
+            (folder / 'generation_manifest.json').write_text(json.dumps({
+                'model':'provider/model', 'selected_subjects':['s'],
+                'configuration':{}, 'settings':{'max_tokens':10}}))
+            (folder / 'generation_errors' / 'failure.json').write_text('{}')
+            extra = root / 'evaluation-old' / 'calls' / 'paid.json'
+            extra.parent.mkdir(parents=True)
+            extra.write_text('{}')
+            ledger = release.Ledger(root / 'spend.jsonl')
+            request = {'messages':[], 'schema':{}}
+            with patch.object(release, '_request', return_value=request):
+                with self.assertRaisesRegex(ValueError, 'Unaccounted historical artifacts'):
+                    release.seed_ledger(ledger, None, protocol, {'provider/model':(Decimal(0), Decimal('0.01'))}, 'hash', run_dir=root)
+                self.assertFalse(ledger.path.exists())
+                extra.unlink()
+                release.seed_ledger(ledger, None, protocol, {'provider/model':(Decimal(0), Decimal('0.01'))}, 'hash', run_dir=root)
+            self.assertEqual(ledger.summary()['attempts'], 1)
+            self.assertEqual(ledger.summary()['estimated_committed_usd'], '0.10')
+
+    def test_judge_timeout_override_and_legacy_fallback(self):
+        self.assertEqual(release.judge_timeout({'generation_timeout':1200, 'judge_timeout':420}), 420)
+        self.assertEqual(release.judge_timeout({'generation_timeout':180}), 180)
+        with self.assertRaises(ValueError):
+            release.judge_timeout({'generation_timeout':180, 'judge_timeout':0})
+
+    def test_main_wires_judge_timeout_and_generation_timeout_separately(self):
+        protocol = {'authorized_inference_cap_usd':1000, 'benchmark':'benchmark',
+            'models':[{'id':'m', 'model':'provider/model', 'profile':'tailscale'}],
+            'generation_timeout':1200, 'judge_timeout':420, 'reasoning_effort':None,
+            'generation_settings':{'max_tokens':32768}}
+        prices = {key:(Decimal('0'), Decimal('0')) for key in
+                  ('provider/model', 'anthropic/claude-haiku-5.5', 'openai/gpt-5.6-terra')}
+        with tempfile.TemporaryDirectory() as tmp:
+            root = Path(tmp)
+            (root/'protocol.json').write_text(json.dumps(protocol))
+            catalog = root/'catalog.json'
+            catalog.write_text('{}')
+            with patch.object(release, 'RUN', root), patch.object(release, 'CATALOG', catalog), \
+                 patch.object(release, 'prices_from_catalog', return_value=prices), \
+                 patch.object(release.Benchmark, 'load', return_value=object()), \
+                 patch.object(release, 'seed_ledger'), patch.object(release, 'LLMClient', return_value=FakeClient()), \
+                 patch.object(release, 'run_multi_evaluation', return_value={'complete':False}) as evaluate, \
+                 patch.object(release, 'run_generation', return_value={}) as generate, \
+                 redirect_stdout(io.StringIO()):
+                release.main(['evaluate', '--max-new-calls', '1'])
+                release.main(['generate', '--max-new-calls', '1'])
+            self.assertEqual(evaluate.call_args.kwargs['timeout'], 420)
+            self.assertEqual(generate.call_args.kwargs['timeout'], 1200)
 
     def test_active_model_selection_and_joint_evaluation(self):
         all_enabled = {'models':[{'id':str(i)} for i in range(8)]}

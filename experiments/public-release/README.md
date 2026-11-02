@@ -39,11 +39,24 @@ must be supplied by the proxy administrator before those runs can proceed.
 Generated content that fails validation remains a failed attempt, with the raw
 response and usage retained for diagnosis.
 
+A fresh run initializes an empty shared ledger before its first call. The
+original early compatibility calls were seeded from their complete legacy smoke
+traces; a missing ledger alongside historical artifacts requires restoring the
+ledger or complete cost records before continuing. Legacy smoke migration accepts
+only the original smoke artifacts; later evaluations, pilots, or other extra
+files require the original ledger.
+
 Every dispatch reserves a conservative catalog-based amount in a shared locked
 ledger. The input rate includes the highest prompt/cache-write rate across
 catalog tiers. Completed calls with usage release unused reservations; failed
 or unknown-cost calls retain theirs. Judge requests record an 8,192-token cap;
-generation uses the protocol's 32,768-token cap. The ledger records its pricing
+generation defaults to the protocol's 32,768-token cap, with a 65,536-token
+cap for the GLM 5.3 main cohort via its per-model override. Each cohort uses a
+consistent cap; the earlier 32,768-token GLM pilot is excluded from the main run.
+Evaluation uses the protocol’s `judge_timeout` (420 seconds for this release),
+falling back to `generation_timeout` if the judge setting is absent; the timeout
+is part of the saved judgment request identity.
+The ledger records its pricing
 revision and catalog hash. These are estimates, not a reconciled proxy invoice.
 
 The study's `report_leaderboard.json` points to the combined aggregate artifact.

@@ -1,14 +1,23 @@
 # Integration plan: generate plans and evaluate a new model
 
-Status: implemented with offline verification, November 2, 2026. The original
-judge research was committed as `7f5b347`; this document records the integration
-design and acceptance checks. Implementation used Terra-based agents and
-independent Sol-based code reviews. Live provider and Tailscale smoke tests
-require the corresponding credentials and endpoint configuration.
+Status: the public CLI is implemented, including `generate`, `evaluate`, and
+`evaluate-many`. The original judge research was committed as `7f5b347`; this
+document records the integration design and its verification checkpoints. Live
+inference for this release uses the configured Tailscale proxy. For current run
+status and artifacts, see [the public release README](../experiments/public-release/README.md)
+and `results/public-release-20261102/`.
+
+The active first release compares the original 12 baseline systems with five new
+generators: Claude Haiku 5.5, Kimi K3.1 Pro, GLM 5.3, DeepSeek 4.1 Flash, and
+Gemini 4 Argon. The user deferred GPT 6.1 Terra and both MiMo 2.6 variants. The
+run has a $1,000 cap. At the November 2 checkpoint, four generation cohorts had
+83 of 83 plans, GLM 5.3 had 64 in the main run and was still progressing, and the
+combined ranking was not ready. These are a dated snapshot, not a live status;
+consult the release README and artifacts for subsequent progress.
 
 ## Outcome
 
-After one-time data and connection setup, adding a generator requires two
+After one-time data and connection setup, adding a single generator uses two
 commands:
 
 ```sh
@@ -22,7 +31,8 @@ uv run studentbench-leaderboard evaluate results/new-model
 writes a model leaderboard, uncertainty, rubric breakdowns, coverage, and an HTML
 report. Both commands resume validated completed work. Evaluation also reuses
 compatible saved baseline judgments, so a new model does not require regrading
-every old comparison.
+every old comparison. `evaluate-many` combines multiple generated cohorts into
+a single evaluation and common leaderboard.
 
 The initial benchmark is GRE Quant. The generation model and judge model are
 separate settings. Replace `provider/model-id` with an exact available model ID.
@@ -207,16 +217,19 @@ the optional proxy, also supply its URL/port/API prefix, generator/judge aliases
 and upstream mapping/revision. No internal address or working MiMo route is
 assumed. A frozen bundle has been prepared and checked locally. The automated
 acceptance suite uses synthetic model responses and makes no paid inference
-calls; live transport smoke tests remain environment-specific verification.
+calls. Live proxy smoke tests and the release run subsequently used the
+Tailscale profile; direct live transport remains environment-specific.
 
 ## Verification completed
 
-- All 231 offline tests pass, including the original research tests and new
-  command, routing, resume, retry-budget, coverage, cache, and filesystem checks.
+- The initial integration checkpoint passed 231 offline tests, including the
+  original research tests and command, routing, resume, retry-budget, coverage,
+  cache, and filesystem checks. Later release work added further tests.
 - Sol reviews covered routing, benchmark/generation, and evaluation. Reproduced
   findings received regression tests and were reviewed again after fixes.
 - The real bundle verifies 83 students, 238 baseline plans, 12 generator presets,
   and 293 saved baseline judgments. A native-route dry run reuses all 293;
   OpenRouter schedules fresh baseline judgments and shares them across later runs.
 - The built wheel imports from outside the checkout and includes the commands
-  and packaged judge assets. No provider or proxy inference was dispatched.
+  and packaged judge assets. This was an offline checkpoint; subsequent live
+  proxy smoke tests and release inference were dispatched through Tailscale.

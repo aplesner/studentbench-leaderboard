@@ -202,11 +202,23 @@ def seed_ledger(ledger, benchmark, protocol, prices, catalog_hash, run_dir=RUN):
                 raise ValueError('Frozen catalog does not match existing ledger')
             return
         if events: raise ValueError('Unseeded ledger contains records')
+        smoke_traces = list(run_dir.glob('*-smoke.json'))
+        # Any unexpected artifacts can represent earlier charged attempts.
+        fresh_allowed = {run_dir / 'protocol.json', run_dir / 'connection.toml', ledger.path, ledger.lock_path}
+        has_history = any(p.is_symlink() or (p.is_file() and p not in fresh_allowed)
+                          for p in run_dir.rglob('*'))
+        if not smoke_traces:
+            if has_history:
+                raise ValueError('Historical run artifacts found without complete legacy smoke traces; restore the original ledger or complete cost records before proceeding')
+            ledger._append({'event':'seed', 'catalog_sha256':catalog_hash, 'attempts':[]})
+            return
         entries = []
+        allowed = {run_dir / 'protocol.json', run_dir / 'connection.toml', ledger.path, ledger.lock_path}
+        allowed.update(run_dir / f"{spec['id']}-smoke.json" for spec in protocol['models'])
         for spec in protocol['models']:
             smoke_file = run_dir / f"{spec['id']}-smoke.json"
             if not smoke_file.exists():
-                raise ValueError(f"Missing initial smoke trace for {spec['id']}; seed before moving initial artifacts")
+                raise ValueError(f"Missing initial smoke trace for {spec['id']}; restore complete legacy traces or the original ledger before proceeding")
             smoke = json.loads(smoke_file.read_text())
             count = smoke.get('calls_started')
             if type(count) is not int or count < 0: raise ValueError(f"Invalid initial smoke trace for {spec['id']}")
@@ -218,7 +230,10 @@ def seed_ledger(ledger, benchmark, protocol, prices, catalog_hash, run_dir=RUN):
             req = _request(benchmark, manifest['selected_subjects'][0], manifest['configuration'], spec['model'], manifest['settings'])
             reserve = maximum_cost(req['messages'], req['schema'], manifest['settings']['max_tokens'], prices[spec['model']])
             saved = list((manifest_path.parent / 'generations').glob('*.json'))
-            if len(saved) > count: raise ValueError(f"More saved responses than initial calls for {spec['id']}")
+            errors = list((manifest_path.parent / 'generation_errors').glob('*.json'))
+            if len(saved) + len(errors) > count:
+                raise ValueError(f"Unaccounted history for {spec['id']}; restore the original ledger")
+            allowed.update([manifest_path, manifest_path.parent / '.generation.lock', *saved, *errors])
             charges = []
             for path in saved:
                 result = json.loads(path.read_text())
@@ -227,6 +242,11 @@ def seed_ledger(ledger, benchmark, protocol, prices, catalog_hash, run_dir=RUN):
             charges.extend([reserve] * (count - len(charges)))
             entries.extend({'id':f"seed-{spec['id']}-{i}", 'model':spec['model'], 'charge_usd':str(charge)}
                            for i, charge in enumerate(charges))
+        # Legacy traces describe only the initial smoke. Any additional files,
+        # including archived pilots and evaluations, may represent later charges.
+        for path in run_dir.rglob('*'):
+            if path.is_symlink() or (path.is_file() and path not in allowed):
+                raise ValueError('Unaccounted historical artifacts found; restore the original ledger before proceeding')
         if sum((_decimal(e['charge_usd']) for e in entries), Decimal(0)) > ledger.cap:
             raise BudgetExceeded('Initial calls exceed estimated budget cap')
         ledger._append({'event':'seed', 'catalog_sha256':catalog_hash, 'attempts':entries})
@@ -253,6 +273,21 @@ def select_models(protocol, requested=None, *, require_all=False):
     if not active:
         raise ValueError('At least one release model must be enabled')
     return [m for m in active if m['id'] in selected]
+
+
+def generation_settings(protocol, spec):
+    defaults = protocol.get('generation_settings', {})
+    overrides = spec.get('generation_settings', {})
+    if not isinstance(defaults, dict) or not isinstance(overrides, dict):
+        raise ValueError('Generation settings must be objects')
+    return {**defaults, **overrides}
+
+
+def judge_timeout(protocol):
+    value = protocol.get('judge_timeout', protocol['generation_timeout'])
+    if type(value) not in (int, float) or value <= 0:
+        raise ValueError('Judge timeout must be a positive number')
+    return value
 
 
 def worker_count(value):
@@ -298,12 +333,12 @@ def main(argv=None):
             result = run_generation(benchmark, RUN / 'generations' / spec['id'], spec['model'], client,
                 reasoning_effort=protocol['reasoning_effort'], timeout=protocol['generation_timeout'],
                 workers=args.workers, max_new_calls=min(remaining, 1 if args.command == 'smoke' else remaining),
-                **protocol['generation_settings'])
+                **generation_settings(protocol, spec))
             print(json.dumps({'model':spec['id'], **{k:v for k,v in result.items() if k != 'requests'}}), flush=True)
     else:
         result = run_multi_evaluation(benchmark, [RUN / 'generations' / m['id'] for m in models], client,
             output=RUN / 'evaluation', include_new_pairs=True, workers=args.workers,
-            max_new_calls=args.max_new_calls, timeout=protocol['generation_timeout'],
+            max_new_calls=args.max_new_calls, timeout=judge_timeout(protocol),
             cache_dir=RUN / 'judge-cache')
         print(json.dumps({'complete':result.get('complete'), 'calls_started':client.started}), flush=True)
     print(json.dumps(ledger.summary()), flush=True)

@@ -59,7 +59,8 @@ class PublicLeaderboardTests(unittest.TestCase):
             fit = {'connected': True, 'converged': True, 'models': roster,
                    'leaderboard': [{'model': model, 'rank': i + 1, 'score': .1} for i, model in enumerate(roster)]}
             base = {'complete': True, 'ranking': fit, 'requested_models': new,
-                    'generation_coverage': [{'model': model, 'status': 'ready', 'settings': {'max_tokens': 32768}} for model in new]}
+                    'generation_coverage': [{'model': model, 'label': 'Friendly '+model, 'status': 'ready', 'settings': {'max_tokens': 32768}} for model in new],
+                    'evaluation_conditions': {'routes': [{'model': 'judge-model', 'reasoning_effort': 'low', 'settings': {'max_tokens': 8192, 'api_key': 'SECRET-KEY'}, 'endpoint': 'SECRET-ENDPOINT', 'profile': 'SECRET-PROFILE'}]}}
             cases = []
             cases.append(('complete', base, True))
             active17 = copy.deepcopy(base)
@@ -109,7 +110,7 @@ const data=text.split('<script type="application/json" id="study-data">')[1].spl
 const script=text.split('<script>')[1].split('</script>')[0],nodes={};
 const get=id=>nodes[id]??={textContent:id==='study-data'?data:'',innerHTML:'',value:'overall',classList:{toggle(){}},addEventListener(){}};
 vm.runInNewContext(script,{document:{getElementById:get,addEventListener(){}}});
-process.stdout.write(JSON.stringify({status:get('public-status').textContent,ranking:get('public-ranking').innerHTML,settings:get('public-model-settings').innerHTML}));
+process.stdout.write(JSON.stringify({status:get('public-status').textContent,ranking:get('public-ranking').innerHTML,settings:get('public-model-settings').innerHTML,coverage:get('public-coverage').innerHTML}));
 """
             for label, artifact, ready in cases:
                 with self.subTest(label=label):
@@ -119,8 +120,18 @@ process.stdout.write(JSON.stringify({status:get('public-status').textContent,ran
                     displayed = json.loads(result.stdout)
                     self.assertEqual(displayed['status'], 'Complete' if ready else 'Pending / unavailable')
                     self.assertIn('max tokens: 32768', displayed['settings'])
+                    self.assertIn('83 frozen benchmark student contexts', document)
+                    self.assertIn('delivered schema-valid plans', document)
+                    self.assertIn('Historical baseline plans can include answer-verifier edits', document)
+                    self.assertIn('without that historical answer verifier', document)
+                    self.assertIn('generation pipelines are not historically equivalent', document)
+                    if label != 'malformed nested data':
+                        self.assertIn('max tokens: 8192', displayed['coverage'])
+                        for secret in ('SECRET-KEY', 'SECRET-ENDPOINT', 'SECRET-PROFILE'):
+                            self.assertNotIn(secret, document)
                     if ready:
                         self.assertIn('95% student bootstrap rank range', displayed['ranking'])
+                        self.assertIn('Friendly new-0', displayed['ranking'])
                     else:
                         self.assertIn('not available yet', displayed['ranking'])
                         self.assertNotIn('<strong>old', displayed['ranking'])
