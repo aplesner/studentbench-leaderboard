@@ -10,6 +10,96 @@ judge can abstain with `null`; a pairwise score of zero means a tie. The ranking
 study evaluates model-level alignment on separate validation and test subjects.
 No model calls are needed for setup or the tests.
 
+## Generate and evaluate a new model
+
+After preparing a benchmark once, the new-model workflow is:
+
+```bash
+uv run studentbench-leaderboard generate \
+  --model provider/model-id --output results/new-model
+uv run studentbench-leaderboard evaluate results/new-model
+```
+
+Replace `provider/model-id` with an exact available model ID. The first command
+generates plans for the benchmark students; the second judges those plans
+against existing plans for the same students and writes `evaluation.json`,
+`leaderboard.csv`, and `report.html` in `results/new-model/evaluation/`.
+The generation model and the benchmark's selected judge are separate.
+
+Compatible judgments are reused from `results/judge-cache` across candidate
+models; override this with `--cache-dir PATH` or `STUDENTBENCH_JUDGE_CACHE`.
+Changing the judge route can require fresh baseline judgments once; subsequent
+models reuse those results when their requests match.
+
+The default `auto` connection uses OpenRouter. For GPT models, an available
+`OPENAI_API_KEY` selects direct OpenAI access; for Claude models, an available
+`ANTHROPIC_API_KEY` selects direct Anthropic access. Otherwise configure
+`OPENROUTER_API_KEY`. Explicit `openrouter/` model prefixes or `--profile
+openrouter` force OpenRouter. `--profile openai`, `--profile anthropic`, and
+`--profile direct` select native access explicitly. Keys are read from the
+environment; see [.env.example](.env.example) and
+[connection.example.toml](connection.example.toml). The application does not
+automatically load `.env` files.
+
+```bash
+# Inspect requests and counts without inference or credentials.
+uv run studentbench-leaderboard generate \
+  --model provider/model-id --output results/new-model --dry-run
+uv run studentbench-leaderboard evaluate results/new-model --dry-run
+
+# Check connection/authentication without making an inference request.
+uv run studentbench-leaderboard doctor --model provider/model-id
+```
+
+Re-running a command reuses validated completed requests. Use `--limit N` for a
+generation subset, `--comparisons-per-student N` for a smaller evaluation
+schedule, and `--max-new-calls N` to bound new inference. `--workers` and
+`--timeout` control execution. Parameters defining a saved run must match when
+resuming. Incomplete runs retain their completed work and report missing
+outcomes. A provider or Tailscale failure never changes the connection profile
+automatically.
+
+The internal LiteLLM proxy is an explicit option:
+
+```bash
+export LITELLM_PROXY_API_BASE='http://your-tailnet-host:4000'
+export LITELLM_PROXY_API_KEY='your-proxy-key'
+uv run studentbench-leaderboard --profile tailscale generate \
+  --model your-proxy-model-alias --output results/new-model
+uv run studentbench-leaderboard --profile tailscale evaluate results/new-model
+```
+
+Use the actual proxy URL and aliases configured by its administrator. Tailscale
+provides connectivity; this code does not install or configure it. A custom
+connection TOML can be passed with `--config PATH`. Its optional per-profile
+`models` mapping translates the frozen judge's canonical ID into your proxy's
+confirmed alias, and `revision` records deployment changes in cache identities.
+
+## Prepare the benchmark once
+
+The portable GRE Quant bundle freezes the original 83-student test cohort,
+baseline plans, generation prompt, selected `enhanced_terra_high` judge, enriched
+pretest context, and baseline judgment provenance. Preparation uses the local
+SSOT and the frozen study artifacts described below:
+
+```bash
+uv run studentbench-leaderboard benchmark prepare \
+  --study results/ranking-study-20260910 --output data/gre-quant-v1
+uv run studentbench-leaderboard benchmark inspect data/gre-quant-v1
+```
+
+Alternatively, obtain a prepared bundle from the data owner and verify it with
+`benchmark inspect`. Once prepared, generation and evaluation need only that
+bundle and credentials, without the historical results directories, neighboring
+repositories, or raw SSOT. The default path is `data/gre-quant-v1`; use
+`--benchmark PATH` or `STUDENTBENCH_BENCHMARK` to select another bundle.
+
+Student data and bundles remain outside Git. A fresh checkout needs the data
+owner's source assets or a prepared bundle. The generation renderer is versioned
+and its provenance records differences from the historical application pipeline.
+AI candidate rankings and historical human reference results are labeled
+separately; newly generated plans have no human grades.
+
 ## Setup
 
 ```bash
@@ -98,8 +188,8 @@ belong to the review's pretest subject. This initial CLI accepts plans from the
 SSOT review catalog; the library's `Task` type also accepts supplied plan JSON,
 pretest context, and a rubric.
 
-For ad hoc judging, select a LiteLLM `provider/model` identifier and configure
-that provider's credentials in the environment. For named judges, models and
+For ad hoc judging, select a model identifier and configure credentials for the
+resolved connection profile. For named judges, models and
 reasoning effort come from TOML. There is no implicit default judge, fallback
 provider, or automatic retry. The provider must support the
 structured response format. See the official
@@ -191,10 +281,10 @@ quality or rank separation.
 
 ## Project boundaries and next steps
 
-The [integration plan](docs/integration-plan.md) describes the proposed two-command
-workflow for generating a new model's plans and evaluating them against existing
-models, using our LiteLLM proxy over Tailscale or explicit direct provider access.
-Those generation and evaluation commands are not implemented yet.
+The [integration plan](docs/integration-plan.md) records the implementation design
+for the two-command workflow and its verification requirements. OpenRouter with
+automatic native-key selection is the public default; the LiteLLM proxy over
+Tailscale is an explicit internal connection option.
 
 `../studentbench/` contains the original application, instruments, and data
 collection logic. `../studentbench-analysis/` contains the existing research

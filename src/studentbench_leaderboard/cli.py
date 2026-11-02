@@ -14,6 +14,36 @@ from .judge_config import DEFAULT_JUDGES_DIR, check_strategy_history, load_defin
 from .report import human_scores, judge_report, leaderboard
 
 DEFAULT_RESULTS = Path("results/judgments.jsonl")
+PROFILES = ("auto", "openrouter", "openai", "anthropic", "direct", "tailscale")
+
+
+def connection_arguments(command: argparse.ArgumentParser, *, global_options: bool = False) -> None:
+    default = None if global_options else argparse.SUPPRESS
+    command.add_argument("--profile", choices=PROFILES, default=default,
+                         help="Connection profile: auto prefers GPT/Claude native keys, otherwise OpenRouter")
+    command.add_argument("--config", type=Path, default=default, help="Connection profile TOML file")
+
+
+def execution_arguments(command: argparse.ArgumentParser) -> None:
+    connection_arguments(command)
+    command.add_argument("--benchmark", type=Path,
+                         default=Path(os.environ.get("STUDENTBENCH_BENCHMARK", "data/gre-quant-v1")),
+                         help="Prepared portable benchmark directory")
+    command.add_argument("--dry-run", action="store_true", help="Preview exact requests without calling models")
+    command.add_argument("--max-new-calls", type=int, default=1000,
+                         help="Run at most N previously uncached jobs in this invocation")
+    command.add_argument("--workers", type=int, default=1, help="Maximum simultaneous model requests")
+    command.add_argument("--timeout", type=int, default=180, help="Timeout per model request in seconds")
+
+
+def llm_client(args: argparse.Namespace):
+    from .llm_client import LLMClient
+
+    return LLMClient(profile=getattr(args, "profile", None), config_path=getattr(args, "config", None))
+
+
+def print_json(value: object) -> None:
+    print(json.dumps(value, indent=2, ensure_ascii=False, allow_nan=False))
 
 
 def records_from(path: Path) -> list[dict]:
@@ -39,10 +69,40 @@ def emit(value: object, output: Path | None, dataset: Dataset) -> None:
 
 
 def parser() -> argparse.ArgumentParser:
-    root = argparse.ArgumentParser(description="Judge StudentBench lesson plans and validate against human reviews.")
+    root = argparse.ArgumentParser(description="Generate and evaluate StudentBench lesson plans.")
     root.add_argument("--ssot", type=Path, default=Path(os.environ.get("STUDENTBENCH_SSOT", "studentbench_data_ssot")))
     root.add_argument("--instrument", choices=INSTRUMENTS, default="gre_quant")
+    connection_arguments(root, global_options=True)
     commands = root.add_subparsers(dest="command", required=True)
+    benchmark = commands.add_parser("benchmark", help="Prepare and inspect portable benchmark inputs")
+    benchmark_commands = benchmark.add_subparsers(dest="benchmark_command", required=True)
+    prepare = benchmark_commands.add_parser("prepare", help="Freeze local SSOT and selected-study assets")
+    prepare.add_argument("--output", type=Path, default=Path("data/gre-quant-v1"))
+    prepare.add_argument("--study", type=Path, default=Path("results/ranking-study-20260910"))
+    prepare.add_argument("--source-bank", type=Path, help="Explicit selected-judge question-bank supplement")
+    check = benchmark_commands.add_parser("inspect", help="Verify a prepared benchmark's checksums and joins")
+    check.add_argument("path", type=Path, nargs="?", default=Path("data/gre-quant-v1"))
+    generate = commands.add_parser("generate", help="Generate a new model's plans for a frozen benchmark")
+    execution_arguments(generate)
+    generate.add_argument("--model", required=True, help="Model ID; OpenRouter is the default provider")
+    generate.add_argument("--output", type=Path, required=True, help="Resumable generation run directory")
+    generate.add_argument("--reasoning-effort")
+    generate.add_argument("--limit", type=int, help="Generate a bounded deterministic subset of students")
+    evaluate_command = commands.add_parser("evaluate", help="Judge new plans and produce a model leaderboard")
+    execution_arguments(evaluate_command)
+    evaluate_command.add_argument("generation_dir", type=Path)
+    evaluate_command.add_argument("--output", type=Path, help="Defaults to GENERATION_DIR/evaluation")
+    evaluate_command.add_argument("--cache-dir", type=Path,
+                                  default=Path(os.environ.get("STUDENTBENCH_JUDGE_CACHE", "results/judge-cache")),
+                                  help="Shared validated judge cache for subsequent candidate models")
+    evaluate_command.add_argument("--comparisons-per-student", type=int,
+                                  help="Compare each new plan with at most N baseline plans")
+    evaluate_command.add_argument("--seed", type=int, default=20261102)
+    evaluate_command.add_argument("--bootstrap", type=int, default=500,
+                                  help="Number of student-cluster bootstrap resamples")
+    doctor = commands.add_parser("doctor", help="Check connection configuration without inference")
+    connection_arguments(doctor)
+    doctor.add_argument("--model", help="Check the resolved route for this model")
     registry = commands.add_parser("judges", help="List configured judge IDs, versions, and call counts")
     registry.add_argument("--judges-dir", type=Path, default=DEFAULT_JUDGES_DIR)
     inspect = commands.add_parser("inspect", help="Validate joins and summarize available data")
@@ -50,6 +110,7 @@ def parser() -> argparse.ArgumentParser:
     listing = commands.add_parser("reviews", help="List review IDs and their lesson-plan IDs")
     listing.add_argument("--limit", type=int, default=10)
     judge = commands.add_parser("judge", help="Judge one review or a bounded batch of human-reviewed tasks")
+    connection_arguments(judge)
     selection = judge.add_mutually_exclusive_group(required=True)
     selection.add_argument("--grading-id", help="Review ID supplies pretest and exact rubric/scale versions")
     selection.add_argument("--limit", type=int, help="First N distinct tasks in stable review-ID order")
@@ -78,6 +139,9 @@ def parser() -> argparse.ArgumentParser:
 
 
 def run(args: argparse.Namespace) -> None:
+    if args.command in {"benchmark", "generate", "evaluate", "doctor"}:
+        run_workflow(args)
+        return
     if args.command == "judges":
         if not args.judges_dir.is_dir():
             raise ValueError(f"Judge configuration directory not found: {args.judges_dir}")
@@ -112,6 +176,52 @@ def run(args: argparse.Namespace) -> None:
         run_judge(args, dataset)
 
 
+def run_workflow(args: argparse.Namespace) -> None:
+    if args.command == "doctor":
+        result = llm_client(args).doctor(args.model)
+    elif args.command == "benchmark":
+        from .benchmark import Benchmark, prepare_benchmark
+
+        if args.benchmark_command == "prepare":
+            result = prepare_benchmark(args.ssot, args.output, study=args.study, source_bank=args.source_bank)
+        else:
+            benchmark = Benchmark.load(args.path)
+            result = {"benchmark": str(args.path), "instrument": benchmark.instrument,
+                      "fingerprint": benchmark.fingerprint, "subjects": len(benchmark.contexts),
+                      "baseline_plans": len(benchmark.plans), "models": benchmark.models,
+                      "judge_id": benchmark.judge_id, "baseline_records": len(benchmark.baseline_records)}
+    else:
+        from .benchmark import Benchmark
+
+        benchmark = Benchmark.load(args.benchmark)
+        destination = (args.output if args.command == "generate" else
+                       args.output or args.generation_dir / "evaluation")
+        if destination.resolve().is_relative_to(args.ssot.resolve()):
+            raise ValueError("Output must be outside the read-only SSOT directory")
+        if args.command == "evaluate" and args.cache_dir.resolve().is_relative_to(args.ssot.resolve()):
+            raise ValueError("Judge cache must be outside the read-only SSOT directory")
+        client = llm_client(args)
+        settings = {"dry_run": args.dry_run, "max_new_calls": args.max_new_calls,
+                    "workers": args.workers, "timeout": args.timeout}
+        if args.command == "generate":
+            from .generation import run_generation
+
+            result = run_generation(benchmark, args.output, args.model, client,
+                                    reasoning_effort=args.reasoning_effort, limit=args.limit, **settings)
+        else:
+            from .evaluation import run_evaluation
+
+            result = run_evaluation(benchmark, args.generation_dir, client, output=args.output,
+                                    cache_dir=args.cache_dir,
+                                    comparisons_per_student=args.comparisons_per_student,
+                                    seed=args.seed, bootstrap=args.bootstrap, **settings)
+    print_json(result)
+    if args.command == "doctor" and not result.get("ok", False):
+        raise ValueError("Connection check failed; resolve the reported configuration or connectivity problem")
+    if not getattr(args, "dry_run", False) and result.get("complete") is False:
+        raise ValueError("Run is incomplete; inspect the saved failures and rerun to resume")
+
+
 def run_judge(args: argparse.Namespace, dataset: Dataset) -> None:
     if args.plans and not args.grading_id:
         raise ValueError("--plans requires --grading-id for the rubric and pretest context")
@@ -125,8 +235,9 @@ def run_judge(args: argparse.Namespace, dataset: Dataset) -> None:
     if destination is None and not args.dry_run:
         destination = DEFAULT_RESULTS
     path = output_path(destination, dataset) if destination is not None else None
-    judge = (ConfiguredJudge(load_definition(args.judge, args.judges_dir)) if args.judge else
-             LiteLLMJudge(args.model or "dry-run", args.reasoning_effort))
+    client = llm_client(args) if args.judge or args.model else None
+    judge = (ConfiguredJudge(load_definition(args.judge, args.judges_dir), client=client) if args.judge else
+             LiteLLMJudge(args.model or "dry-run", args.reasoning_effort, client=client))
     ids = [args.grading_id] if args.grading_id else sorted(dataset.sessions)
     tasks, seen = [], set()
     for grading_id in ids:
