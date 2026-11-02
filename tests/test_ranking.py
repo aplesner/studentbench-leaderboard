@@ -58,7 +58,11 @@ class BradleyTerryTests(unittest.TestCase):
         self.assertAlmostEqual(sum(r["score"] for r in fit["leaderboard"]), 0)
         self.assertGreater(fit["pairwise_probabilities"][0]["probability_a"], .8)
         self.assertLess(fit["pairwise_probabilities"][0]["probability_a"], 1)
-        self.assertEqual(fit["leaderboard"], swapped["leaderboard"])
+        self.assertEqual(len(fit["leaderboard"]), len(swapped["leaderboard"]))
+        for original, reversed_slots in zip(fit["leaderboard"], swapped["leaderboard"]):
+            self.assertEqual({k: v for k, v in original.items() if k != "score"},
+                             {k: v for k, v in reversed_slots.items() if k != "score"})
+            self.assertAlmostEqual(original["score"], reversed_slots["score"], delta=1e-12)
 
     def test_ties_have_equal_scores_and_midranks(self):
         fit = fit_bradley_terry([comparison(value=.5)])

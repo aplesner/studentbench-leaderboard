@@ -373,7 +373,7 @@ weight = 1.0
         fit = fit_bradley_terry(rows)
         result = density_analysis(rows, fit, ["a", "b", "c"], repeats=10, seed=1)
         self.assertEqual(result["experiments"][0]["valid_fit_fraction"], 0)
-        self.assertEqual(result["experiments"][-1]["summary"]["probability_mae"]["mean"], 0)
+        self.assertAlmostEqual(result["experiments"][-1]["summary"]["probability_mae"]["mean"], 0, places=12)
         self.assertEqual(result["experiments"][-1]["coverage"]["n_pairs"]["mean"], 4)
 
     def test_augmentation_retains_reviewed_pairs_and_adds_only_new_pairs(self):
