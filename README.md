@@ -326,3 +326,7 @@ supplement and historical LLM judge calls; neither is pooled into this initial
 adapter. Bulk data storage is deliberately deferred. An access-controlled
 GCS bucket with immutable release objects and checksum-verified downloads is
 one future option; no bucket or upload has been configured.
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).

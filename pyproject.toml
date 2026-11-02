@@ -3,6 +3,8 @@ name = "studentbench-leaderboard"
 version = "0.1.0"
 description = "LLM lesson-plan judging and validation against StudentBench human ratings"
 readme = "README.md"
+license = "MIT"
+license-files = ["LICENSE"]
 authors = [
     { name = "Andreas Plesner", email = "AndreasPlesner@pm.me" }
 ]
