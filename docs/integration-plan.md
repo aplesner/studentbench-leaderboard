@@ -7,13 +7,20 @@ inference for this release uses the configured Tailscale proxy. For current run
 status and artifacts, see [the public release README](../experiments/public-release/README.md)
 and `results/public-release-20261102/`.
 
-The active first release compares the original 12 baseline systems with five new
-generators: Claude Haiku 5.5, Kimi K3.1 Pro, GLM 5.3, DeepSeek 4.1 Flash, and
-Gemini 4 Argon. The user deferred GPT 6.1 Terra and both MiMo 2.6 variants. The
-run has a $1,000 cap. At the November 2 checkpoint, four generation cohorts had
-83 of 83 plans, GLM 5.3 had 64 in the main run and was still progressing, and the
-combined ranking was not ready. These are a dated snapshot, not a live status;
-consult the release README and artifacts for subsequent progress.
+The completed first release compares the original 12 baseline systems with five
+new generators: Claude Haiku 5.5, Kimi K3.1 Pro, GLM 5.3, DeepSeek 4.1 Flash,
+and Gemini 4 Argon. The user deferred GPT-6.1 Terra and MiMo 2.6 Flash/Pro.
+The evaluation covers 83 contexts, 415 new plans, 2,313 comparisons and 18,504
+rubric answers, with zero missing or abstained answers and 500 of 500 valid
+bootstrap fits. GLM generation used a 65,536-token cap. The ledger estimate was
+$410.79 against the $1,000 cap, including reservations for failed or unknown-cost
+calls; it is not an invoice. All release inference used Tailscale. The 272 offline
+tests passed and Sol reviews cleared.
+
+The public snapshot is available as [HTML](../reports/2026-11-02/leaderboard.html),
+[CSV](../reports/2026-11-02/leaderboard.csv), and
+[JSON](../reports/2026-11-02/leaderboard.json). The full detailed research report
+remains local at `results/ranking-study-20260910/report.html`.
 
 ## Outcome
 

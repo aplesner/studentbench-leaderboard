@@ -2,10 +2,20 @@
 
 ## v1: first public leaderboard
 
+Completed November 2, 2026: [HTML leaderboard](../reports/2026-11-02/leaderboard.html),
+[CSV](../reports/2026-11-02/leaderboard.csv), and
+[aggregate JSON](../reports/2026-11-02/leaderboard.json). The 17-system release
+covers 83 contexts, 415 new plans, 2,313 comparisons and 18,504 rubric answers;
+none were missing or abstained, and all 500 bootstrap fits were valid. All release
+inference used Tailscale. The ledger estimate was $410.79 of the $1,000 cap,
+including failed or unknown-cost reservations; it is not an invoice. The full
+judge-validation report remains local at `results/ranking-study-20260910/report.html`.
+The 272 offline tests passed and Sol reviews cleared.
+
 Include five new lesson-plan generators alongside the 12 existing presets:
 Claude Haiku 5.5, Kimi K3.1 Pro, GLM 5.3, DeepSeek v4.1 Flash, and Gemini 4 Argon.
 Freeze exact provider model IDs, generation settings, benchmark inputs and
-judging policy. The first release therefore targets 17 systems.
+judging policy. The first release contains 17 systems.
 
 GPT-6.1 Terra and MiMo v2.6 Flash/Pro were also requested, then explicitly deferred
 by the user because their exact model aliases were unavailable on our Tailscale
@@ -62,7 +72,7 @@ separate recorded version and an explanation of changes from v1.
   students with fixed saved plans.
 - Extend the validated workflow to GRE Verbal with its own rubric/context
   preparation and human-validation evidence.
-- Provide checksum-verified benchmark distribution and public aggregate exports
-  so external users can reproduce runs from a fresh checkout.
+- Provide checksum-verified benchmark distribution alongside the public aggregate
+  exports so external users can reproduce runs from a fresh checkout.
 
 These items are future work, not requirements to expand the first release.

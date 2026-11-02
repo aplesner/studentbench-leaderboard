@@ -1,15 +1,26 @@
 # First public leaderboard run
 
-The November 2, 2026 release adds five enabled generator systems to the 12 frozen
-GRE Quant baselines. The protocol uses 83 student contexts, 415 new plans and up
-to 2,313 comparisons, including new-to-new pairs. GPT-6.1 Terra and MiMo v2.6
+The completed November 2, 2026 release adds five generator systems to the 12 frozen
+GRE Quant baselines. It covers 83 student contexts, 415 new plans, 2,313
+comparisons including new-to-new pairs, and 18,504 rubric answers. No rubric
+answers were missing or abstained, and 500 of 500 student-bootstrap fits were valid. GPT-6.1 Terra and MiMo v2.6
 Flash/Pro are explicitly deferred at the user's request while their proxy aliases
 are unavailable; their initial access checks remain in the audit history.
 
 **All our authoring and judging calls use the existing Tailscale LiteLLM proxy.**
 This release-specific choice does not change the public CLI's automatic
 OpenRouter/native-key routing. The runner rejects non-Tailscale profiles.
-The total authorized inference estimate cap is $1,000.
+The total authorized inference estimate cap was $1,000. The ledger estimate was
+$410.79, including retained reservations for failed or unknown-cost calls; it is
+not a reconciled invoice. The 272 offline tests passed and Sol reviews cleared.
+
+The versioned public snapshot is available as
+[HTML](../../reports/2026-11-02/leaderboard.html),
+[CSV](../../reports/2026-11-02/leaderboard.csv), and
+[JSON](../../reports/2026-11-02/leaderboard.json). The full detailed historical
+judge-validation report remains local at `results/ranking-study-20260910/report.html`.
+The next judge-method work is Jev and other decision judges in v1.1; it does not
+change this release's frozen judge or ranking.
 
 Local, ignored inputs are:
 

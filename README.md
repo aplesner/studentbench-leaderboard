@@ -10,6 +10,26 @@ judge can abstain with `null`; a pairwise score of zero means a tie. The ranking
 study evaluates model-level alignment on separate validation and test subjects.
 No model calls are needed for setup or the tests.
 
+## First public leaderboard
+
+The November 2, 2026 release ranks 17 generator systems: the original 12
+baselines and five new models. It covers 83 frozen benchmark contexts, 415 new
+plans, 2,313 comparisons and 18,504 rubric answers, with no missing or abstained
+answers. All 500 student-bootstrap fits were valid. The ranking is AI-judged;
+the historical and new generation pipelines differ, as described in the report.
+
+View the [public leaderboard](reports/2026-11-02/leaderboard.html), or download
+its [CSV](reports/2026-11-02/leaderboard.csv) and
+[aggregate JSON](reports/2026-11-02/leaderboard.json). The detailed original
+judge-validation research report remains local at
+`results/ranking-study-20260910/report.html`. Release inference used the Tailscale
+proxy; the CLI's `auto` routing described below remains unchanged. The ledger
+estimate was $410.79 against the $1,000 cap, including retained reservations for
+failed or unknown-cost calls; it is not an invoice. GPT-6.1 Terra and MiMo 2.6
+Flash/Pro were deferred at the user's request. For methods and future work,
+see the [release notes](experiments/public-release/README.md) and
+[roadmap](docs/roadmap.md).
+
 ## Generate and evaluate a new model
 
 After preparing a benchmark once, the new-model workflow is:
