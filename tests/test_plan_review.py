@@ -125,6 +125,42 @@ class PlanReviewTests(unittest.TestCase):
             self.assertEqual(reverse['pairs'][0]['plan_ids'], ['second', 'first'])
 
     @unittest.skipUnless(shutil.which('node'), 'Node required for browser logic test')
+    def test_opponent_filter_preserves_blinding_and_assignments(self):
+        common = {'pretest': [], 'judgments': [{'judge_a': 'A', 'ratings': {'q01': {'score': 1, 'reason': 'HIDDEN EVIDENCE'}}}]}
+        pairs = [
+            {**common, 'id': 'one', 'plan_ids': ['p1', 'p2'], 'plans': [{'text': 'first A'}, {'text': 'first B'}], 'models': ['candidate', 'opus-5-high'], 'focus_slot': 'A'},
+            {**common, 'id': 'two', 'plan_ids': ['p3', 'p4'], 'plans': [{'text': 'second A'}, {'text': 'second B'}], 'models': ['opus-5-high', 'candidate'], 'focus_slot': 'B'},
+            {**common, 'id': 'three', 'plan_ids': ['p5', 'p6'], 'plans': [{'text': 'third A'}, {'text': 'third B'}], 'models': ['candidate', 'other-model'], 'focus_slot': 'A'},
+        ]
+        with tempfile.TemporaryDirectory() as temp, patch('studentbench_leaderboard.plan_review.collect_pairs', return_value=pairs):
+            result = render_review(*self.args, Path(temp) / 'viewer', ssot=self.fixture.path / 'ssot')
+            document = Path(result['path']).read_text()
+        harness = r"""
+const fs=require('fs'),vm=require('vm'),html=fs.readFileSync(0,'utf8');
+const data=html.split('<script type="application/json" id="review-data">')[1].split('</script>')[0];
+const script=html.split('<script>')[1].split('</script>')[0];
+class N{constructor(tag='div'){this.tagName=tag.toUpperCase();this.children=[];this.textContent='';this.dataset={};this.value='all';this.classList={add(){},remove(){},toggle(){}}}append(...x){this.children.push(...x)}replaceChildren(){this.children=[]}click(){if(this.onclick)this.onclick()}}
+const dump=n=>n.textContent+n.children.map(dump).join('');
+function run(search){const nodes={};const get=id=>nodes[id]??=new N();get('review-data').textContent=data;get('opponent').value='';const choices=['A','B','tie','insufficient'].map(c=>{let n=new N('button');n.dataset.choice=c;return n});const document={getElementById:get,createElement:t=>new N(t),querySelectorAll:()=>choices};let blob;vm.runInNewContext(script,{document,window:{scrollTo(){},location:{search}},URLSearchParams,localStorage:{getItem:()=>null,setItem(){}},alert(){},confirm:()=>true,Blob:function(p){blob=p[0]},URL:{createObjectURL:()=> 'blob:local',revokeObjectURL(){}}});return {get,choices,exported:()=>JSON.parse(blob)}}
+let a=run('?opponent=opus-5-high');const initial={opponent:a.get('opponent').value,position:a.get('position').textContent,planA:dump(a.get('plan-a')),revealed:dump(a.get('revealed'))};a.get('next').click();const second={position:a.get('position').textContent,planA:dump(a.get('plan-a')),revealed:dump(a.get('revealed'))};a.choices[0].click();a.get('export').click();const exported=a.exported();a.get('filter').value='focus-loss';a.get('filter').onchange();const intersection=a.get('position').textContent;a.get('opponent').value='other-model';a.get('opponent').onchange();const empty=a.get('position').textContent;const unknown=run('?opponent=%3Cscript%3E').get('opponent').value;const defaultPosition=run('').get('position').textContent;process.stdout.write(JSON.stringify({initial,second,exported,intersection,empty,unknown,defaultPosition}));
+"""
+        result = subprocess.run(['node', '-e', harness], input=document, text=True, capture_output=True, check=True)
+        shown = json.loads(result.stdout)
+        self.assertEqual(shown['initial']['opponent'], 'opus-5-high')
+        self.assertEqual(shown['initial']['position'], 'Pair 1 / 2')
+        self.assertIn('first A', shown['initial']['planA'])
+        self.assertEqual(shown['initial']['revealed'], '')
+        self.assertEqual(shown['second']['position'], 'Pair 2 / 2')
+        self.assertIn('second A', shown['second']['planA'])
+        self.assertEqual(shown['second']['revealed'], '')
+        self.assertEqual(shown['exported']['reviews'][0]['plan_a_id'], 'p3')
+        self.assertEqual(shown['exported']['reviews'][0]['model_a'], 'opus-5-high')
+        self.assertEqual(shown['intersection'], 'Pair 1 / 1')
+        self.assertEqual(shown['empty'], 'No revealed pairs in this filter')
+        self.assertEqual(shown['unknown'], '')
+        self.assertEqual(shown['defaultPosition'], 'Pair 1 / 3')
+
+    @unittest.skipUnless(shutil.which('node'), 'Node required for browser logic test')
     def test_blind_until_choice_or_reveal(self):
         payload = [{'id': 'x', 'plan_ids': ['plan-1', 'plan-2'], 'plans': [{'summary': 'summary value', 'concepts': [{'name': 'name value', 'why_it_matters': 'why value', 'practice_problems': [{'stem': 'stem value', 'format': 'format value', 'options': ['option value'], 'answer': 'answer value', 'solution': 'solution value'}]}]}, {'concepts': [{'practice_problems': [{'solution': 'solution value', 'answer': 'answer value', 'options': ['option value'], 'format': 'format value', 'stem': 'stem value'}], 'why_it_matters': 'why value', 'name': 'name value'}], 'summary': 'summary value'}],
                     'models': ['SECRET MODEL ONE', 'SECRET MODEL TWO'], 'focus_slot': 'A', 'pretest': [],
@@ -138,8 +174,8 @@ const fs=require('fs'),vm=require('vm'),html=fs.readFileSync(0,'utf8');
 const data=html.split('<script type="application/json" id="review-data">')[1].split('</script>')[0];
 const script=html.split('<script>')[1].split('</script>')[0];
 class N{constructor(tag='div'){this.tagName=tag.toUpperCase();this.children=[];this.textContent='';this.dataset={};this.value='all';this.classList={add(){},remove(){},toggle(){}}}append(...x){this.children.push(...x)}replaceChildren(){this.children=[]}click(){if(this.onclick)this.onclick()}}
-const nodes={};const get=id=>nodes[id]??=new N();get('review-data').textContent=data;const choices=['A','B','tie','insufficient'].map(c=>{let n=new N('button');n.dataset.choice=c;return n});const document={getElementById:get,createElement:t=>new N(t),querySelectorAll:()=>choices};
-let blob,scrolls=0;vm.runInNewContext(script,{document,window:{scrollTo:()=>scrolls++},localStorage:{getItem:()=>null,setItem(){}},alert(){},confirm:()=>true,Blob:function(parts){blob=parts[0]},URL:{createObjectURL:()=> 'blob:local',revokeObjectURL(){}}});
+const nodes={};const get=id=>nodes[id]??=new N();get('opponent').value='';get('review-data').textContent=data;const choices=['A','B','tie','insufficient'].map(c=>{let n=new N('button');n.dataset.choice=c;return n});const document={getElementById:get,createElement:t=>new N(t),querySelectorAll:()=>choices};
+let blob,scrolls=0;vm.runInNewContext(script,{document,window:{scrollTo:()=>scrolls++,location:{search:''}},URLSearchParams,localStorage:{getItem:()=>null,setItem(){}},alert(){},confirm:()=>true,Blob:function(parts){blob=parts[0]},URL:{createObjectURL:()=> 'blob:local',revokeObjectURL(){}}});
 const dump=n=>n.textContent+n.children.map(dump).join('');let before=dump(get('revealed')),planA=dump(get('plan-a')),planB=dump(get('plan-b'));get('next').click();get('prev').click();choices[0].click();let after=dump(get('revealed'));get('export').click();process.stdout.write(JSON.stringify({before,after,planA,planB,scrolls,exported:JSON.parse(blob)}));
 '''
         result = subprocess.run(['node', '-e', harness], input=document, text=True, capture_output=True, check=True)
