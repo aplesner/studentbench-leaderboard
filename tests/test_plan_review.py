@@ -18,6 +18,7 @@ class PlanReviewTests(unittest.TestCase):
         judge_path = self.fixture.path / 'judge_1.toml'
         judge_path.write_text(judge_path.read_text().replace('strategy = "single"', 'strategy = "single"\nplan_projection = "human_display"'))
         self.fixture.benchmark.plans['a']['plan_as_stored']['practice'] = [{'answer_original': 'ARCHIVAL SECRET', 'answer': 'displayed'}]
+        self.fixture.benchmark.contexts['s1']['pretest'][0].update({'question_id': 'question-12', 'skill': 'algebra', 'subskill': 'equations', 'difficulty': 'hard', 'time_spent_seconds': 93, 'answer_changes': 2, 'question_context': 'source context', 'reviewer_id': 'PRIVATE REVIEWER', 'student_id': 'PRIVATE STUDENT'})
         self.fixture.run_eval()
         self.benchmark = self.fixture.benchmark
         self.benchmark.path = self.fixture.path / 'benchmark'
@@ -32,6 +33,10 @@ class PlanReviewTests(unittest.TestCase):
         self.assertEqual(len(pairs), 2)
         self.assertNotIn('ARCHIVAL SECRET', json.dumps(pairs))
         self.assertIn('displayed', json.dumps(pairs))
+        pretest = pairs[0]['pretest'][0]
+        self.assertEqual({k: pretest[k] for k in ('question_id', 'skill', 'subskill', 'difficulty', 'time_spent_seconds', 'answer_changes', 'question_context')}, {'question_id': 'question-12', 'skill': 'algebra', 'subskill': 'equations', 'difficulty': 'hard', 'time_spent_seconds': 93, 'answer_changes': 2, 'question_context': 'source context'})
+        self.assertNotIn('reviewer_id', pretest)
+        self.assertNotIn('student_id', pretest)
         self.assertEqual(pairs, collect_pairs(*self.args))
         self.assertEqual({m for p in pairs for m in p['models'] if m != 'candidate'}, {'old-a', 'old-b'})
         for pair in pairs:
@@ -121,9 +126,10 @@ class PlanReviewTests(unittest.TestCase):
 
     @unittest.skipUnless(shutil.which('node'), 'Node required for browser logic test')
     def test_blind_until_choice_or_reveal(self):
-        payload = [{'id': 'x', 'plan_ids': ['plan-1', 'plan-2'], 'plans': [{'text': 'first plan'}, {'text': 'second plan'}],
+        payload = [{'id': 'x', 'plan_ids': ['plan-1', 'plan-2'], 'plans': [{'summary': 'summary value', 'concepts': [{'name': 'name value', 'why_it_matters': 'why value', 'practice_problems': [{'stem': 'stem value', 'format': 'format value', 'options': ['option value'], 'answer': 'answer value', 'solution': 'solution value'}]}]}, {'concepts': [{'practice_problems': [{'solution': 'solution value', 'answer': 'answer value', 'options': ['option value'], 'format': 'format value', 'stem': 'stem value'}], 'why_it_matters': 'why value', 'name': 'name value'}], 'summary': 'summary value'}],
                     'models': ['SECRET MODEL ONE', 'SECRET MODEL TWO'], 'focus_slot': 'A', 'pretest': [],
                     'judgments': [{'judge_a': 'B', 'ratings': {'q01': {'score': -1, 'reason': 'SECRET EVIDENCE'}}}]}]
+        payload.append({**payload[0], 'id': 'y', 'plan_ids': ['plan-3', 'plan-4']})
         with tempfile.TemporaryDirectory() as temp, patch('studentbench_leaderboard.plan_review.collect_pairs', return_value=payload):
             result = render_review(*self.args, Path(temp) / 'viewer', ssot=self.fixture.path / 'ssot')
             document = Path(result['path']).read_text()
@@ -133,12 +139,18 @@ const data=html.split('<script type="application/json" id="review-data">')[1].sp
 const script=html.split('<script>')[1].split('</script>')[0];
 class N{constructor(tag='div'){this.tagName=tag.toUpperCase();this.children=[];this.textContent='';this.dataset={};this.value='all';this.classList={add(){},remove(){},toggle(){}}}append(...x){this.children.push(...x)}replaceChildren(){this.children=[]}click(){if(this.onclick)this.onclick()}}
 const nodes={};const get=id=>nodes[id]??=new N();get('review-data').textContent=data;const choices=['A','B','tie','insufficient'].map(c=>{let n=new N('button');n.dataset.choice=c;return n});const document={getElementById:get,createElement:t=>new N(t),querySelectorAll:()=>choices};
-let blob;vm.runInNewContext(script,{document,localStorage:{getItem:()=>null,setItem(){}},alert(){},confirm:()=>true,Blob:function(parts){blob=parts[0]},URL:{createObjectURL:()=> 'blob:local',revokeObjectURL(){}}});
-const dump=n=>n.textContent+n.children.map(dump).join('');let before=dump(get('revealed'));choices[0].click();let after=dump(get('revealed'));get('export').click();process.stdout.write(JSON.stringify({before,after,exported:JSON.parse(blob)}));
+let blob,scrolls=0;vm.runInNewContext(script,{document,window:{scrollTo:()=>scrolls++},localStorage:{getItem:()=>null,setItem(){}},alert(){},confirm:()=>true,Blob:function(parts){blob=parts[0]},URL:{createObjectURL:()=> 'blob:local',revokeObjectURL(){}}});
+const dump=n=>n.textContent+n.children.map(dump).join('');let before=dump(get('revealed')),planA=dump(get('plan-a')),planB=dump(get('plan-b'));get('next').click();get('prev').click();choices[0].click();let after=dump(get('revealed'));get('export').click();process.stdout.write(JSON.stringify({before,after,planA,planB,scrolls,exported:JSON.parse(blob)}));
 '''
         result = subprocess.run(['node', '-e', harness], input=document, text=True, capture_output=True, check=True)
         shown = json.loads(result.stdout)
         self.assertNotIn('SECRET', shown['before'])
+        self.assertEqual(shown['planA'], shown['planB'])
+        for label in ('summary value', 'name value', 'why value', 'stem value', 'format value', 'option value', 'answer value', 'solution value'):
+            self.assertIn(label, shown['planA'])
+        self.assertEqual(sorted(['summary value', 'name value', 'why value', 'stem value', 'format value', 'option value', 'answer value', 'solution value'], key=shown['planA'].index),
+                         ['summary value', 'name value', 'why value', 'stem value', 'format value', 'option value', 'answer value', 'solution value'])
+        self.assertEqual(shown['scrolls'], 2)
         self.assertIn('SECRET MODEL ONE', shown['after'])
         self.assertIn('SECRET EVIDENCE', shown['after'])
         self.assertIn('judge’s original A = displayed B', shown['after'])
