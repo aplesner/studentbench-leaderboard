@@ -89,6 +89,26 @@ or `STUDENTBENCH_JUDGE_CACHE`); `--max-new-calls` bounds provider attempts. See
 the [integration guide](docs/integration-plan.md) and command `--help` for the
 multi-model workflow, caching and execution controls.
 
+## Review saved pairs privately
+
+To inspect saved judgments without making model calls, provide the verified
+benchmark, the completed evaluation directory, and **all** generation directories
+used in that evaluation. For example:
+
+```bash
+uv run studentbench-leaderboard review-pairs results/model-a results/model-b \
+  --evaluation results/combined --focus provider/model-id --output results/private-review
+```
+
+Open `results/private-review/index.html` locally. The page shuffles all completed
+student-matched pairs for the focus model and randomizes the A/B presentation;
+models and judge evidence appear only after a choice or reveal. Choices stay in
+browser storage and can be exported as JSON or cleared. Revealed outcome filters
+are exploratory, and math text is shown as saved. The HTML itself contains private
+student context, plans, model identities and judge evidence, even before reveal;
+keep it and exported reviews private and out of Git. The viewer does not upload
+or call external services.
+
 ## Prepare the benchmark once
 
 The portable GRE Quant bundle freezes the original 83-student test cohort,

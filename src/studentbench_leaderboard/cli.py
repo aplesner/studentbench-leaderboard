@@ -111,6 +111,13 @@ def parser() -> argparse.ArgumentParser:
     multi.add_argument("--comparisons-per-student", type=int)
     multi.add_argument("--seed", type=int, default=20261102)
     multi.add_argument("--bootstrap", type=int, default=500)
+    review = commands.add_parser("review-pairs", help="Create a private offline blinded A/B review")
+    review.add_argument("generation_dirs", type=Path, nargs="+", help="All generation directories in the evaluation")
+    review.add_argument("--evaluation", type=Path, required=True, help="Saved evaluation directory")
+    review.add_argument("--focus", required=True, help="Exact generator model ID to review")
+    review.add_argument("--output", type=Path, required=True, help="Private output directory")
+    review.add_argument("--benchmark", type=Path, default=Path(os.environ.get("STUDENTBENCH_BENCHMARK", "data/gre-quant-v1")))
+    review.add_argument("--seed", type=int, default=20261103)
     doctor = commands.add_parser("doctor", help="Check connection configuration without inference")
     connection_arguments(doctor)
     doctor.add_argument("--model", help="Check the resolved route for this model")
@@ -152,6 +159,13 @@ def parser() -> argparse.ArgumentParser:
 def run(args: argparse.Namespace) -> None:
     if args.command in {"benchmark", "generate", "evaluate", "evaluate-many", "doctor"}:
         run_workflow(args)
+        return
+    if args.command == "review-pairs":
+        from .benchmark import Benchmark
+        from .plan_review import render_review
+        benchmark = Benchmark.load(args.benchmark)
+        print_json(render_review(benchmark, args.generation_dirs, args.evaluation, args.focus,
+                                 args.output, ssot=args.ssot, seed=args.seed))
         return
     if args.command == "judges":
         if not args.judges_dir.is_dir():
