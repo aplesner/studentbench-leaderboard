@@ -1,35 +1,42 @@
 # StudentBench lesson-plan leaderboard
 
-The first StudentBench leaderboard compares 17 lesson-plan generator systems on
-83 frozen GRE Quant student contexts. An AI judge evaluated 2,313 pairwise
-comparisons across eight quality criteria. The five new generators each produced
+The November 3 StudentBench leaderboard compares 23 lesson-plan generator
+systems on 83 frozen GRE Quant student contexts. An AI judge evaluated 7,476
+pairwise comparisons and 59,808 rubric answers across eight quality criteria,
+with no missing or abstained answers. Eleven generated systems each produced
 83 plans; the 12 historical systems have different available student counts.
+The update adds six systems and 498 plans to the November 2 release.
 
 ## AI-judged leaderboard
 
 Rank 1 is the highest estimated quality. The Bradley–Terry (BT) score summarizes
-pairwise preferences while accounting for opponents. Asterisks mark the five
-new generators; other rows are historical baselines.
+pairwise preferences while accounting for opponents. Asterisks mark the 11 generated systems; other rows are historical baselines.
 
 | Rank | Generator system | 95% rank range | BT score | Comparisons | Students |
 | ---: | --- | ---: | ---: | ---: | ---: |
-| 1 | Kimi K3.1 Pro * | 1–2 | 1.149 | 570 | 83 |
-| 2 | Claude Opus 5 · high | 1–5 | 0.951 | 90 | 13 |
-| 3 | GPT 5.5 · high | 2–5 | 0.820 | 136 | 20 |
-| 4 | GPT 5.5 Pro · medium | 2–6 | 0.800 | 135 | 17 |
-| 5 | DeepSeek v4.1 Flash * | 3–6 | 0.701 | 570 | 83 |
-| 6 | Claude Opus 4.8 · xhigh | 4–7 | 0.609 | 137 | 18 |
-| 7 | Claude Opus 4.8 · off | 5–9 | 0.472 | 87 | 12 |
-| 8 | Claude Haiku 5.5 * | 7–9 | 0.376 | 570 | 83 |
-| 9 | Gemini 4 Argon * | 9–11 | 0.196 | 570 | 83 |
-| 10 | GLM 5.3 * | 8–11 | 0.143 | 570 | 83 |
-| 11 | Claude Sonnet 4.6 · low | 8–11 | 0.016 | 153 | 19 |
-| 12 | Kimi K2.6 | 12–13 | -0.468 | 143 | 18 |
-| 13 | Gemini 3.7 Flash · medium | 12–14 | -0.591 | 74 | 11 |
-| 14 | Gemini 3.1 Pro · high | 13–14 | -0.794 | 211 | 28 |
-| 15 | Gemini 3.5 Flash · low | 15–16 | -1.283 | 209 | 28 |
-| 16 | Gemma 4 31B · high | 15–17 | -1.525 | 212 | 28 |
-| 17 | GPT 5.4 Mini · none | 16–17 | -1.572 | 189 | 26 |
+| 1 | Claude Fable 5.1 * | 1–2 | 0.999 | 1068 | 83 |
+| 2 | GPT-6 Astra * | 2–4 | 0.911 | 1068 | 83 |
+| 3 | Kimi K3.1 Pro * | 2–5 | 0.901 | 1068 | 83 |
+| 4 | Claude Opus 5 · high | 1–8 | 0.851 | 168 | 13 |
+| 5 | GPT-6.1 Sol * | 3–7 | 0.838 | 1068 | 83 |
+| 6 | Claude Sonnet 5.5 * | 4–7 | 0.803 | 1068 | 83 |
+| 7 | Claude Opus 5.5 * | 5–8 | 0.741 | 1068 | 83 |
+| 8 | GPT 5.5 · high | 7–10 | 0.596 | 256 | 20 |
+| 9 | GPT 5.5 Pro · medium | 7–10 | 0.593 | 237 | 17 |
+| 10 | DeepSeek v4.1 Flash * | 9–12 | 0.437 | 1068 | 83 |
+| 11 | Claude Opus 4.8 · xhigh | 10–12 | 0.307 | 245 | 18 |
+| 12 | Claude Opus 4.8 · off | 10–14 | 0.251 | 159 | 12 |
+| 13 | Claude Haiku 5.5 * | 12–14 | 0.111 | 1068 | 83 |
+| 14 | Gemini 4 Argon * | 14–16 | -0.050 | 1068 | 83 |
+| 15 | GLM 5.3 * | 13–16 | -0.066 | 1068 | 83 |
+| 16 | Claude Sonnet 4.6 · low | 14–17 | -0.246 | 267 | 19 |
+| 17 | GPT-6 Luna * | 16–17 | -0.342 | 1068 | 83 |
+| 18 | Kimi K2.6 | 18–20 | -0.694 | 251 | 18 |
+| 19 | Gemini 3.7 Flash · medium | 18–20 | -0.790 | 140 | 11 |
+| 20 | Gemini 3.1 Pro · high | 19–20 | -0.961 | 379 | 28 |
+| 21 | Gemini 3.5 Flash · low | 21–21 | -1.484 | 377 | 28 |
+| 22 | Gemma 4 31B · high | 22–23 | -1.780 | 380 | 28 |
+| 23 | GPT 5.4 Mini · none | 22–23 | -1.929 | 345 | 26 |
 
 The 95% rank ranges come from 500 student-context bootstrap resamples; all 500
 fits were connected and converged. They describe uncertainty for the saved plans
@@ -40,24 +47,28 @@ The pipelines are not historically equivalent, so the table compares the recorde
 systems rather than models in isolation. These are AI judgments, not human grades
 or measurements of student learning.
 
-![Overall leaderboard with student bootstrap rank intervals](reports/2026-11-02/figure-overall-ranks.png)
+![Overall leaderboard with student bootstrap rank intervals](reports/2026-11-03/figure-overall-ranks.png)
 
 *Points are overall ranks; lines are 95% student-bootstrap rank ranges. Diamonds
-mark new generators; circles mark historical baselines.*
+mark the 11 generated systems; circles mark historical baselines.*
 
-![Criterion-specific ranks across eight quality dimensions](reports/2026-11-02/figure-criterion-ranks.png)
+![Criterion-specific ranks across eight quality dimensions](reports/2026-11-03/figure-criterion-ranks.png)
 
 *Each column is a separately fitted criterion ranking; rows follow overall rank.
-Darker cells indicate higher estimated quality, and diamonds mark new generators.
+Darker cells indicate higher estimated quality, and diamonds mark the generated systems.
 The overall intervals above use 500 student resamples; this heatmap shows point
 ranks only.*
 
-Explore the [public report](reports/2026-11-02/leaderboard.html),
-[CSV](reports/2026-11-02/leaderboard.csv), and
-[aggregate JSON](reports/2026-11-02/leaderboard.json). The
-[plotting helper](reports/2026-11-02/plot_leaderboard.py) reproduces both figures
+Explore the [public report](reports/2026-11-03/leaderboard.html),
+[CSV](reports/2026-11-03/leaderboard.csv), and
+[aggregate JSON](reports/2026-11-03/leaderboard.json). The
+[plotting helper](reports/2026-11-03/plot_leaderboard.py) reproduces both figures
 from the aggregate JSON. The detailed original judge-validation report remains
-local at `results/ranking-study-20260910/report.html`. See the
+local at `results/ranking-study-20260910/report.html`. The original
+[November 2 leaderboard](reports/2026-11-02/leaderboard.html) remains available.
+This update is pinned to benchmark SHA-256
+`320be135c5cabfe1013d75d6c06baddc3dcd2e08ac523ffbf8e7a5391f4e870a` and source
+commit `b874167ebbfd2d993ccb3149e711a02d502b8299`. See the
 [release notes](experiments/public-release/README.md) and [roadmap](docs/roadmap.md).
 
 ## Quick start
@@ -101,8 +112,9 @@ uv run studentbench-leaderboard review-pairs results/model-a results/model-b \
 ```
 
 Open `results/private-review/index.html` locally. The page shuffles all completed
-student-matched pairs for the focus model and randomizes the A/B presentation;
-models and judge evidence appear only after a choice or reveal. Choices stay in
+student-matched pairs for the focus model and randomizes the A/B presentation.
+The optional opponent selector names the chosen opponent; A/B model assignments
+and judge evidence remain hidden until a choice or reveal. Choices stay in
 browser storage and can be exported as JSON or cleared. Revealed outcome filters
 are exploratory, and math text is shown as saved. The HTML itself contains private
 student context, plans, model identities and judge evidence, even before reveal;

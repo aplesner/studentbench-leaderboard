@@ -1,5 +1,40 @@
 # First public leaderboard run
 
+## November 3, 2026 update
+
+The updated [public leaderboard](../../reports/2026-11-03/leaderboard.html),
+[CSV](../../reports/2026-11-03/leaderboard.csv), and
+[aggregate JSON](../../reports/2026-11-03/leaderboard.json) cover 23 systems on
+the same 83 frozen benchmark contexts. Six added systems produced 498 plans;
+combined with the previous five generated systems and 238 baseline plans, the
+corpus contains 1,151 plans. The update adds 5,163 judgments to the previous
+2,313, for 7,476 comparisons and 59,808 usable rubric answers, with no missing or
+abstained answers. All 500 student-bootstrap fits were valid. These are
+AI-judged generator-system comparisons; the original historical and generated
+plan pipelines are not equivalent. The historical human-validation summary
+remains unchanged.
+
+All six models used the Tailscale LiteLLM proxy, `max_tokens=32768`, and no
+explicit reasoning setting (provider default):
+
+| System | Requested model ID |
+| --- | --- |
+| GPT-6 Astra | `openai/gpt-6-astra` |
+| GPT-6.1 Sol | `openai/gpt-6.1-sol` |
+| GPT-6 Luna | `openai/gpt-6-luna` |
+| Claude Opus 5.5 | `anthropic/claude-opus-5-5` |
+| Claude Sonnet 5.5 | `anthropic/claude-sonnet-5-5` |
+| Claude Fable 5.1 | `anthropic/claude-fable-5-1` |
+
+GPT-6.1 Terra remains deferred at the user's request. The extension had a separate
+$1,000 cap and a $985.39541025 ledger estimate, including retained reservations
+for failed or unknown-cost attempts; this is not an invoice. That estimate is
+separate from the first release's $410.793972215 estimate. The verified source
+commit and benchmark fingerprint are recorded in the aggregate JSON. The original
+[November 2 snapshot](../../reports/2026-11-02/leaderboard.html) remains frozen.
+
+## November 2, 2026 first release
+
 The completed November 2, 2026 release adds five generator systems to the 12 frozen
 GRE Quant baselines. It covers 83 student contexts, 415 new plans, 2,313
 comparisons including new-to-new pairs, and 18,504 rubric answers. No rubric
